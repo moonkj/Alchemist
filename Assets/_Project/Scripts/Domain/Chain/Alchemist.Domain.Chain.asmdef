@@ -1,0 +1,18 @@
+{
+    "name": "Alchemist.Domain.Chain",
+    "rootNamespace": "Alchemist.Domain.Chain",
+    "references": [
+        "Alchemist.Domain.Colors",
+        "Alchemist.Domain.Blocks",
+        "Alchemist.Domain.Board"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

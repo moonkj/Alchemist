@@ -1,0 +1,19 @@
+{
+    "name": "Alchemist.UI",
+    "rootNamespace": "Alchemist.UI",
+    "references": [
+        "Alchemist.Domain.Colors",
+        "Alchemist.Domain.Scoring",
+        "Alchemist.Domain.Prompts",
+        "Unity.TextMeshPro"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

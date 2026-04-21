@@ -1,0 +1,19 @@
+{
+    "name": "Alchemist.View",
+    "rootNamespace": "Alchemist.View",
+    "references": [
+        "Alchemist.Domain.Colors",
+        "Alchemist.Domain.Blocks",
+        "Alchemist.Domain.Board",
+        "Alchemist.Domain.Chain"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

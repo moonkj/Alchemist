@@ -1,0 +1,17 @@
+{
+    "name": "Alchemist.Domain.Board",
+    "rootNamespace": "Alchemist.Domain.Board",
+    "references": [
+        "Alchemist.Domain.Colors",
+        "Alchemist.Domain.Blocks"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

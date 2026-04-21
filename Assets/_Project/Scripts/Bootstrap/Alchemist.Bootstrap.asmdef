@@ -1,0 +1,23 @@
+{
+    "name": "Alchemist.Bootstrap",
+    "rootNamespace": "Alchemist.Bootstrap",
+    "references": [
+        "Alchemist.Domain.Colors",
+        "Alchemist.Domain.Blocks",
+        "Alchemist.Domain.Board",
+        "Alchemist.Domain.Chain",
+        "Alchemist.Domain.Prompts",
+        "Alchemist.Domain.Scoring",
+        "Alchemist.View",
+        "Alchemist.UI"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
