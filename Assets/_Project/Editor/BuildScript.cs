@@ -84,15 +84,9 @@ namespace Alchemist.EditorTools
             esGo.AddComponent<EventSystem>();
             esGo.AddComponent<StandaloneInputModule>();
 
-            // WHY TMP 제거: TMP_Essential_Resources 가 프로젝트에 import 안된 상태에선
-            //             TextMeshProUGUI 가 아무것도 렌더링 못하고 검은 화면만 남음.
-            //             IMGUI(OnGUI) 기반 DebugSplashLabel 로 대체하여 항상 표시 보장.
-            var debugGo = new GameObject("DebugSplashLabel");
-            debugGo.AddComponent<DebugSplashLabel>();
-
-            // WHY AppBootstrap 제거: 현재 AppBootstrap 은 Audio/Haptic/Theme 싱글톤 등록 외에
-            //                       실제 게임 씬 구성을 안 함. 첫 빌드 검증 단계에서는 불필요.
-            //                       정식 게임플레이 Scene 이 연결되는 다음 빌드에서 재추가.
+            // MinimalGameScene: 6×7 컬러 블록 보드 + 탭 반응. DebugSplashLabel 대체.
+            var gameGo = new GameObject("MinimalGameScene");
+            gameGo.AddComponent<MinimalGameScene>();
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
