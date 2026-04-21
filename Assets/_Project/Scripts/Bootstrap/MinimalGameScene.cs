@@ -37,10 +37,30 @@ namespace Alchemist.Bootstrap
         };
 
         // --------------- Screen state ---------------
-        private enum ScreenState { Lobby, Playing, Result }
+        private enum ScreenState { Lobby, Playing, Result, Gallery }
         private ScreenState _screen = ScreenState.Lobby;
         private int _stageIdx;
         private StageConfig _stage;
+
+        // --------------- Gallery catalog (M4) ---------------
+        /// <summary>Chapter → 총 조각 수. 스테이지 클리어 시 별×1 = 조각 1 적립.</summary>
+        private sealed class ArtworkConfig
+        {
+            public string Id, Title, Subtitle;
+            public int TotalFragments;
+            public int[] FeedingStages;   // 조각 기여 스테이지 index
+            public Color TopColor, BottomColor; // 언락 시 드러나는 그라디언트 (노을/바다)
+            public ArtworkConfig(string i, string t, string sub, int f, int[] fs, Color a, Color b)
+            { Id = i; Title = t; Subtitle = sub; TotalFragments = f; FeedingStages = fs; TopColor = a; BottomColor = b; }
+        }
+        private static readonly ArtworkConfig[] Artworks = new[]
+        {
+            new ArtworkConfig("art_sunset", "잃어버린 노을", "챕터 1 · 모든 색이 사라진 하늘",
+                fragmentCount(), new[] { 0, 1, 2, 3, 4 },
+                new Color(1f, 0.55f, 0.25f, 1f), new Color(0.55f, 0.22f, 0.52f, 1f)),
+        };
+        private static int fragmentCount() => 15; // 5 스테이지 × 3 (최대 별)
+        private Texture2D _artworkCanvasTex;
 
         // --------------- Board state ---------------
         private SpriteRenderer[,] _blocks;
@@ -54,6 +74,10 @@ namespace Alchemist.Bootstrap
         // --------------- Drag ---------------
         private int _dragR = -1, _dragC = -1;
         private bool _inputLocked;
+        // Drag follow 물리 — critically-damped spring + velocity stretch
+        private Vector3 _dragVel;
+        private Vector3 _lastDragWorld;
+        private Vector2 _dragVelEma;
 
         // --------------- Play state ---------------
         private int _score, _moves, _maxChainDepth;
@@ -196,6 +220,14 @@ namespace Alchemist.Bootstrap
             return GetStoredStars(Stages[idx - 1].Id) > 0;
         }
 
+        // M4: Gallery — 전체 획득 별의 합 = 총 복원 조각 수.
+        private int GetTotalUnlockedFragments()
+        {
+            int sum = 0;
+            for (int i = 0; i < Stages.Length; i++) sum += GetStoredStars(Stages[i].Id);
+            return sum;
+        }
+
         // --------------- Input ---------------
         private void Update()
         {
@@ -250,12 +282,39 @@ namespace Alchemist.Bootstrap
             if (_colorGrid[r, c] == ColorId.None) return;
             _dragR = r; _dragC = c;
             _blocks[r, c].sortingOrder = 10;
+            // 드래그 물리 상태 초기화
+            _dragVel = Vector3.zero;
+            _lastDragWorld = world;
+            _dragVelEma = Vector2.zero;
         }
         private void OnDragMove(Vector3 world)
         {
             if (_dragR < 0) return;
-            _blocks[_dragR, _dragC].transform.position = new Vector3(world.x, world.y, 0f);
-            _blocks[_dragR, _dragC].transform.localScale = Vector3.one * (CellSize * 1.15f);
+            var tr = _blocks[_dragR, _dragC].transform;
+            float dt = Mathf.Max(0.0001f, Time.deltaTime);
+
+            // 1) 손가락 속도 EMA
+            Vector2 inst = (Vector2)(world - _lastDragWorld) / dt;
+            _dragVelEma = _dragVelEma * 0.75f + inst * 0.25f;
+            _lastDragWorld = world;
+
+            // 2) Critically-damped spring — 블록이 손가락을 0.08s lag 로 뒤따라감
+            Vector3 target = new Vector3(world.x, world.y, -0.1f);
+            tr.position = Vector3.SmoothDamp(tr.position, target, ref _dragVel, 0.08f, 40f);
+
+            // 3) 속도 기반 squash-stretch — 진행방향 길쭉, 수직 납작 (부피 보존 흉내)
+            float speedN = Mathf.Clamp01(_dragVelEma.magnitude / 6f);
+            float sx = 1.0f + 0.28f * speedN;
+            float sy = 1.0f - 0.18f * speedN;
+            float lift = 1.12f;
+            tr.localScale = new Vector3(CellSize * lift * sx, CellSize * lift * sy, CellSize);
+
+            // 4) 진행 방향 rotation (속도 충분할 때만)
+            float rotZ = 0f;
+            if (_dragVelEma.sqrMagnitude > 0.25f)
+                rotZ = Mathf.Atan2(_dragVelEma.y, _dragVelEma.x) * Mathf.Rad2Deg * 0.18f;
+            rotZ = Mathf.Clamp(rotZ, -10f, 10f);
+            tr.rotation = Quaternion.Slerp(tr.rotation, Quaternion.Euler(0f, 0f, rotZ), dt * 12f);
         }
         private void OnDragEnd(Vector3 world)
         {
@@ -263,6 +322,7 @@ namespace Alchemist.Bootstrap
             int sr = _dragR, sc = _dragC;
             _dragR = _dragC = -1;
             _blocks[sr, sc].sortingOrder = 0;
+            _blocks[sr, sc].transform.rotation = Quaternion.identity;
 
             if (!FindCell(world, out int tr, out int tc) || (tr == sr && tc == sc)) { SnapBack(sr, sc); return; }
             if (!IsAdjacent(sr, sc, tr, tc)) { SnapBack(sr, sc); return; }
@@ -476,7 +536,11 @@ namespace Alchemist.Bootstrap
                     {
                         _colorGrid[writeRow, c] = _colorGrid[r, c];
                         _blocks[writeRow, c].color = ColorToUnity(_colorGrid[writeRow, c]);
-                        _blocks[writeRow, c].transform.position = _basePos[r, c];
+                        // 낙하 애니: 이전 위치에서 출발 → EaseOutBounce + 착지 squash
+                        Vector3 fromPos = _basePos[r, c];
+                        Vector3 toPos = _basePos[writeRow, c];
+                        _blocks[writeRow, c].transform.position = fromPos;
+                        StartCoroutine(GravityLandBounce(writeRow, c, fromPos, toPos));
                         _colorGrid[r, c] = ColorId.None;
                         _blocks[r, c].color = ColorToUnity(ColorId.None);
                     }
@@ -494,27 +558,130 @@ namespace Alchemist.Bootstrap
                 _colorGrid[r, c] = nb.Color;
                 _blocks[r, c].color = ColorToUnity(nb.Color);
                 float spawnY = _basePos[0, c].y + (CellSize + Gap) * (r + 1);
-                _blocks[r, c].transform.position = new Vector3(_basePos[r, c].x, spawnY, 0f);
-                _blocks[r, c].transform.localScale = Vector3.one * (CellSize * 0.9f);
+                Vector3 spawn = new Vector3(_basePos[r, c].x, spawnY, 0f);
+                Vector3 tgt = _basePos[r, c];
+                _blocks[r, c].transform.position = spawn;
+                _blocks[r, c].transform.localScale = Vector3.one * (CellSize * 0.30f);
+                StartCoroutine(RefillSpawnAnim(r, c, spawn, tgt));
             }
         }
 
+        /// <summary>Gravity 낙하 Ease-Out-Bounce + 착지 Y squash (열별 스태거).</summary>
+        private IEnumerator GravityLandBounce(int row, int col, Vector3 fromPos, Vector3 toPos)
+        {
+            if (_blocks[row, col] == null) yield break;
+            _bouncing[row, col] = true;
+            var t = _blocks[row, col].transform;
+
+            float delay = (col % 3) * 0.025f;
+            if (delay > 0f) yield return new WaitForSeconds(delay);
+
+            float fallDur = 0.32f, fT = 0f;
+            while (fT < fallDur)
+            {
+                float u = fT / fallDur;
+                float e = EaseOutBounce(u);
+                t.position = Vector3.LerpUnclamped(fromPos, toPos, e);
+                fT += Time.deltaTime;
+                yield return null;
+            }
+            t.position = toPos;
+
+            float squashDur = 0.14f, sT = 0f;
+            while (sT < squashDur)
+            {
+                float u = sT / squashDur;
+                float e = EaseOutBack(u);
+                float sy = Mathf.LerpUnclamped(0.82f, 1.0f, e);
+                float sx = Mathf.LerpUnclamped(1.10f, 1.0f, e);
+                t.localScale = new Vector3(CellSize * sx, CellSize * sy, CellSize);
+                sT += Time.deltaTime;
+                yield return null;
+            }
+            t.localScale = Vector3.one * CellSize;
+            _bouncing[row, col] = false;
+        }
+
+        /// <summary>Refill 블록 등장 스프링 + 알파 fade-in + 행 스태거.</summary>
+        private IEnumerator RefillSpawnAnim(int row, int col, Vector3 spawnPos, Vector3 targetPos)
+        {
+            if (_blocks[row, col] == null) yield break;
+            _bouncing[row, col] = true;
+            var sr = _blocks[row, col];
+            var t = sr.transform;
+
+            float delay = row * 0.018f;
+            if (delay > 0f) yield return new WaitForSeconds(delay);
+
+            Color baseCol = sr.color; baseCol.a = 0f; sr.color = baseCol;
+
+            float dur = 0.28f, elapsed = 0f;
+            while (elapsed < dur)
+            {
+                float u = elapsed / dur;
+                float pe = 1f - Mathf.Pow(1f - u, 4f);
+                t.position = Vector3.LerpUnclamped(spawnPos, targetPos, pe);
+
+                float s;
+                if (u < 0.35f) s = Mathf.Lerp(0.30f, 1.15f, EaseOutCubic(u / 0.35f));
+                else if (u < 0.70f) s = Mathf.Lerp(1.15f, 0.92f, (u - 0.35f) / 0.35f);
+                else s = Mathf.Lerp(0.92f, 1.00f, (u - 0.70f) / 0.30f);
+                t.localScale = Vector3.one * (CellSize * s);
+
+                float aU = Mathf.Clamp01(elapsed / 0.18f);
+                var curCol = sr.color;
+                curCol.a = 1f - Mathf.Pow(1f - aU, 4f);
+                sr.color = curCol;
+
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+            t.position = targetPos;
+            t.localScale = Vector3.one * CellSize;
+            var finalCol = sr.color; finalCol.a = 1f; sr.color = finalCol;
+            _bouncing[row, col] = false;
+        }
+
+        private static float EaseOutBounce(float t)
+        {
+            const float n1 = 7.5625f, d1 = 2.75f;
+            if (t < 1f / d1) return n1 * t * t;
+            if (t < 2f / d1) { t -= 1.5f / d1; return n1 * t * t + 0.75f; }
+            if (t < 2.5f / d1) { t -= 2.25f / d1; return n1 * t * t + 0.9375f; }
+            t -= 2.625f / d1; return n1 * t * t + 0.984375f;
+        }
+
+        private static float EaseOutBack(float t)
+        {
+            const float c1 = 1.70158f, c3 = c1 + 1f;
+            return 1f + c3 * Mathf.Pow(t - 1f, 3f) + c1 * Mathf.Pow(t - 1f, 2f);
+        }
+
+        private static float EaseOutCubic(float t) => 1f - Mathf.Pow(1f - t, 3f);
+
         private void UpdateScaleDecay()
         {
-            // 말캉한 "숨쉬는" 애니: 모든 블록이 약하게 펄스 + 각자 다른 위상.
-            // WHY: 정적 격자가 벽돌처럼 보인다는 유저 피드백. 이 작은 펄스가 살아있는 물감 느낌을 준다.
+            // 공격적 jelly 패치: X ±7% / Y ±8.5% 반위상 + 회전 ±1.5° wobble.
+            // WHY: 기존 ±2.8% 은 지각 한계 미만. 이제 ±6~7픽셀 변동으로 "젤리 조직" 체감.
             for (int r = 0; r < Rows; r++)
             for (int c = 0; c < Cols; c++)
             {
                 if (_blocks[r, c] == null || !_blocks[r, c].enabled) continue;
                 if (_dragR == r && _dragC == c) continue;
-                if (_bouncing[r, c]) continue; // 바운스 애니 중엔 브리딩 비활성
+                if (_bouncing[r, c]) continue;
+
                 var tr = _blocks[r, c].transform;
-                float breathe = 1f + Mathf.Sin(Time.time * 2.2f + _jellyPhase[r, c]) * 0.028f;
-                float stretchY = 1f + Mathf.Sin(Time.time * 2.4f + _jellyPhase[r, c] + 1.1f) * 0.022f;
-                Vector3 targetScale = new Vector3(CellSize * breathe, CellSize * stretchY, CellSize);
-                tr.localScale = Vector3.Lerp(tr.localScale, targetScale, Time.deltaTime * 8f);
-                tr.position = Vector3.Lerp(tr.position, _basePos[r, c], Time.deltaTime * 12f);
+                float ph = _jellyPhase[r, c];
+                float breatheX = 1f + Mathf.Sin(Time.time * 3.0f + ph) * 0.070f;
+                float breatheY = 1f + Mathf.Sin(Time.time * 3.4f + ph + Mathf.PI) * 0.085f;
+                Vector3 targetScale = new Vector3(CellSize * breatheX, CellSize * breatheY, CellSize);
+                tr.localScale = Vector3.Lerp(tr.localScale, targetScale, Time.deltaTime * 14f);
+
+                float rotZ = Mathf.Sin(Time.time * 1.4f + ph * 1.3f) * 1.5f;
+                Quaternion targetRot = Quaternion.Euler(0f, 0f, rotZ);
+                tr.rotation = Quaternion.Slerp(tr.rotation, targetRot, Time.deltaTime * 10f);
+
+                tr.position = Vector3.Lerp(tr.position, _basePos[r, c], Time.deltaTime * 14f);
             }
         }
 
@@ -553,6 +720,21 @@ namespace Alchemist.Bootstrap
                 elapsed += Time.deltaTime;
                 yield return null;
             }
+
+            // Phase 2: 에코 잔향 (±5.5% sin 4.5Hz, 2차 감쇠) — 액체 출렁임
+            float echoDur = 0.25f, echoFreq = 4.5f, echoAmp = 0.055f;
+            float eT = 0f;
+            while (eT < echoDur)
+            {
+                float u = eT / echoDur;
+                float decay = (1f - u) * (1f - u);
+                float ex = 1f + Mathf.Sin(eT * 2f * Mathf.PI * echoFreq) * echoAmp * decay;
+                float ey = 1f - Mathf.Sin(eT * 2f * Mathf.PI * echoFreq) * echoAmp * decay;
+                t.localScale = new Vector3(CellSize * ex, CellSize * ey, CellSize);
+                eT += Time.deltaTime;
+                yield return null;
+            }
+
             t.localScale = Vector3.one * CellSize;
             sr.color = b;
             _bouncing[tr, tc] = false;
@@ -887,6 +1069,12 @@ namespace Alchemist.Bootstrap
             DestroyTex(ref _primaryBtnBg);
             DestroyTex(ref _ghostBtnBg);
             DestroyTex(ref _dimOverlay);
+            DestroyTex(ref _lastArtProgTex);
+            if (_solidCache != null)
+            {
+                foreach (var kv in _solidCache) if (kv.Value != null) Destroy(kv.Value);
+                _solidCache.Clear();
+            }
         }
 
         private static void DestroyTex(ref Texture2D t)
@@ -902,6 +1090,7 @@ namespace Alchemist.Bootstrap
                 case ScreenState.Lobby: DrawLobby(); break;
                 case ScreenState.Playing: DrawPlayingHud(); DrawToast(); break;
                 case ScreenState.Result: DrawPlayingHud(); DrawResult(); break;
+                case ScreenState.Gallery: DrawGallery(); break;
             }
         }
 
@@ -912,6 +1101,15 @@ namespace Alchemist.Bootstrap
             int titleY = (int)(sa.y + 48);
             GUI.Label(new Rect(0, titleY, w, 56), "Color Mix: Alchemist", _display);
             GUI.Label(new Rect(0, titleY + 64, w, 22), "색을 설계하고 폭발시켜 세상을 복원하라", _overlayBody);
+
+            // 우상단 갤러리 버튼 (M4)
+            int totalFrag = GetTotalUnlockedFragments();
+            int maxFrag = Stages.Length * 3;
+            var galleryRect = new Rect(w - 140, titleY - 16, 128, 44);
+            if (GUI.Button(galleryRect, "🎨 갤러리 " + totalFrag + "/" + maxFrag, _ghostBtn))
+            {
+                _screen = ScreenState.Gallery;
+            }
 
             int btnW = Mathf.Min(w - 40, 420);
             int btnH = 88;
@@ -935,6 +1133,110 @@ namespace Alchemist.Bootstrap
                 }
             }
             GUI.backgroundColor = Color.white;
+        }
+
+        /// <summary>
+        /// M4 갤러리 복원 — 총 획득 별 수를 픽셀 그리드로 시각화.
+        /// 스테이지 클리어 별점이 누적될수록 노을 그라디언트가 드러남.
+        /// </summary>
+        private void DrawGallery()
+        {
+            var sa = GetSafeArea();
+            int w = Screen.width, h = Screen.height;
+            int topY = (int)(sa.y + 48);
+
+            GUI.Label(new Rect(0, topY, w, 52), "🎨 갤러리", _display);
+
+            // 상단 뒤로
+            if (GUI.Button(new Rect(16, topY + 8, 84, 40), "◀ 뒤로", _ghostBtn))
+            {
+                _screen = ScreenState.Lobby;
+            }
+
+            // 챕터 1: 잃어버린 노을
+            var art = Artworks[0];
+            int titleY = topY + 80;
+            GUI.Label(new Rect(0, titleY, w, 30), art.Title, _heading);
+            GUI.Label(new Rect(0, titleY + 32, w, 20), art.Subtitle, _caption);
+
+            // 캔버스 영역 — 4×4 = 16 셀, 15개 조각 + 1 센터 마크
+            int unlocked = GetTotalUnlockedFragments();
+            int total = art.TotalFragments;
+            float prog = Mathf.Clamp01((float)unlocked / total);
+
+            int canvasSize = Mathf.Min(w - 40, 420);
+            int cx = (w - canvasSize) / 2;
+            int cy = titleY + 70;
+            DrawArtworkCanvas(cx, cy, canvasSize, unlocked, total, art.TopColor, art.BottomColor);
+
+            // 진행도 바
+            int barY = cy + canvasSize + 24;
+            int barH = 22;
+            GUI.DrawTexture(new Rect(cx, barY, canvasSize, barH), _barBg);
+            Texture2D progFill = _lastArtProgTex ?? (_lastArtProgTex = MakeSolidTexture(new Color(1f, 0.72f, 0.35f, 1f)));
+            GUI.DrawTexture(new Rect(cx, barY, (int)(canvasSize * prog), barH), progFill);
+            GUI.Label(new Rect(cx, barY - 2, canvasSize, barH + 4),
+                "복원 " + unlocked + " / " + total,
+                _goalLabel);
+
+            // 안내
+            GUI.Label(new Rect(0, barY + 40, w, 22),
+                "스테이지 클리어 별 1개당 조각 1점 추가 복원",
+                _caption);
+
+            if (unlocked >= total)
+            {
+                GUI.Label(new Rect(0, barY + 72, w, 28), "✨ 챕터 1 완전 복원! ✨", _goalLabel);
+            }
+        }
+
+        private Texture2D _lastArtProgTex;
+
+        private void DrawArtworkCanvas(int x, int y, int size, int unlocked, int total, Color topC, Color botC)
+        {
+            // 4×4 그리드 중 15셀을 조각으로 삼고(순서 고정), 언락된 만큼 컬러 드러냄.
+            int grid = 4;
+            int cellSz = size / grid;
+            // 배경 틀
+            GUI.DrawTexture(new Rect(x, y, size, size), _panelBg);
+
+            // 드러난 조각에 gradient 샘플링
+            int[] order = { 5, 6, 9, 10, 4, 7, 8, 11, 1, 2, 13, 14, 0, 3, 12, 15 }; // 중앙→외곽
+            int cellCount = grid * grid;
+
+            for (int i = 0; i < cellCount; i++)
+            {
+                int gridIdx = (i < order.Length) ? order[i] : i;
+                int gr = gridIdx / grid;
+                int gc = gridIdx % grid;
+                int px = x + gc * cellSz + 2;
+                int py = y + gr * cellSz + 2;
+                int sz = cellSz - 4;
+
+                if (i < unlocked)
+                {
+                    // 그라디언트: 상단행 TopColor, 하단행 BottomColor 보간
+                    float vy = (float)gr / (grid - 1);
+                    var col = Color.Lerp(topC, botC, vy);
+                    var tex = EnsureCachedSolid(col);
+                    GUI.DrawTexture(new Rect(px, py, sz, sz), tex);
+                }
+                else
+                {
+                    // 잠긴 조각
+                    var tex = EnsureCachedSolid(new Color(0.12f, 0.13f, 0.17f, 0.6f));
+                    GUI.DrawTexture(new Rect(px, py, sz, sz), tex);
+                }
+            }
+        }
+
+        private readonly Dictionary<Color, Texture2D> _solidCache = new Dictionary<Color, Texture2D>();
+        private Texture2D EnsureCachedSolid(Color c)
+        {
+            if (_solidCache.TryGetValue(c, out var t) && t != null) return t;
+            t = MakeSolidTexture(c);
+            _solidCache[c] = t;
+            return t;
         }
 
         private void DrawPlayingHud()
