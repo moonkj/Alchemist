@@ -91,7 +91,7 @@ namespace Alchemist.Tests.EditMode
 
             var proc = new ChainProcessor(board, new NoOpAnimationHub(), spawner);
             var result = proc.ProcessTurnAsync(CancellationToken.None).GetAwaiter().GetResult();
-            Assert.That(result.TotalExploded == 0 && result.MaxDepth == 0 && result.DepthExceeded == false, Is.True);
+            Assert.That(result.TotalExploded == 0 && result.PeakDepth == 0 && result.DepthExceeded == false, Is.True);
         }
 
         [Test]
@@ -131,7 +131,7 @@ namespace Alchemist.Tests.EditMode
             var proc = new ChainProcessor(board, new NoOpAnimationHub(), spawner);
             var result = proc.ProcessTurnAsync(CancellationToken.None).GetAwaiter().GetResult();
 
-            Assert.That(result.MaxDepth, Is.EqualTo(1));
+            Assert.That(result.PeakDepth, Is.EqualTo(1));
         }
 
         [Test]
@@ -185,7 +185,7 @@ namespace Alchemist.Tests.EditMode
             var proc = new ChainProcessor(board, new NoOpAnimationHub(), spawner, null, onExceeded);
             var result = proc.ProcessTurnAsync(CancellationToken.None).GetAwaiter().GetResult();
 
-            Assert.That(result.DepthExceeded && exceededCallbackFired && result.MaxDepth == ChainProcessor.MaxDepth, Is.True);
+            Assert.That(result.DepthExceeded && exceededCallbackFired && result.PeakDepth == ChainProcessor.MaxDepth, Is.True);
         }
     }
 }

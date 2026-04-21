@@ -173,6 +173,7 @@ namespace Alchemist.Domain.Chain
                 _scorer.OnTurnEnded();
             }
 
+            // PeakDepth와 ChainCount는 현재 1-wave-1-event 모델에서 동일한 depth 값을 공유한다.
             return new ChainResult(totalExploded, depth, exceeded, depth);
         }
 
