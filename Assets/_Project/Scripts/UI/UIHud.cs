@@ -24,6 +24,11 @@ namespace Alchemist.UI
             ForceRefresh();
         }
 
+        public void SetPromptContext(IPromptContext ctx)
+        {
+            if (_promptBanner != null) _promptBanner.SetContext(ctx);
+        }
+
         public void SetMovesRemaining(int value)
         {
             _movesRemaining = value;

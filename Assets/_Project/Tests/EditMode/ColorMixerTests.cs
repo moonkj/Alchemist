@@ -95,11 +95,22 @@ namespace Alchemist.Tests.EditMode
         }
 
         [Test]
-        public void Mix_BlackRed_YieldsNone_SpecialMaskDisallowsBlack()
+        public void Mix_BlackRed_YieldsBlack_D16Propagation()
         {
-            // C4: "Black propagates". Implementation refuses normal mix when Black participates,
-            // returning None (no positive color); downstream logic treats Black as infectious penalty.
-            Assert.That(ColorMixer.Mix(ColorId.Black, ColorId.Red), Is.EqualTo(ColorId.None));
+            // D16: Black is infectious — propagates to anything non-Gray.
+            Assert.That(ColorMixer.Mix(ColorId.Black, ColorId.Red), Is.EqualTo(ColorId.Black));
+        }
+
+        [Test]
+        public void Mix_PrismGray_YieldsNone_D17GrayOverridesPrism()
+        {
+            Assert.That(ColorMixer.Mix(ColorId.Prism, ColorId.Gray), Is.EqualTo(ColorId.None));
+        }
+
+        [Test]
+        public void Mix_PrismBlack_YieldsBlack_D17BlackOverridesPrism()
+        {
+            Assert.That(ColorMixer.Mix(ColorId.Prism, ColorId.Black), Is.EqualTo(ColorId.Black));
         }
 
         // ---------- None / Gray sink ----------

@@ -32,12 +32,15 @@ namespace Alchemist.View
         private int _animPending;
         private TaskCompletionSource<bool> _animTcs;
         private readonly object _animLock = new object();
+        // F9 (Wave3): cache method-group delegate to avoid per-call allocation.
+        private System.Action _onAnimStepCached;
 
         public Board Model => _board;
 
         private void Awake()
         {
             if (_blockRoot == null) _blockRoot = transform;
+            if (_onAnimStepCached == null) _onAnimStepCached = OnAnimStep;
         }
 
         /// <summary>Bind to a domain Board. Creates the view grid + pool; populates visuals.</summary>
@@ -76,7 +79,7 @@ namespace Alchemist.View
         /// </summary>
         public void SyncCell(int row, int col)
         {
-            if (_board == null || _viewGrid == null) return;
+            if (_board == null || _viewGrid == null || _pool == null) return;
             int idx = row * _cols + col;
             Block b = _board.BlockAt(row, col);
             BlockView v = _viewGrid[idx];
@@ -125,9 +128,9 @@ namespace Alchemist.View
                     int c = g.ColBuf[k];
                     BlockView v = ViewAt(r, c);
                     if (v != null)
-                        v.PlayExplosion(OnAnimStep);
+                        v.PlayExplosion(_onAnimStepCached);
                     else
-                        OnAnimStep();
+                        _onAnimStepCached();
                 }
             }
             return tcs.Task;
@@ -145,16 +148,16 @@ namespace Alchemist.View
                 {
                     Block b = _board != null ? _board.BlockAt(rows[i], cols[i]) : null;
                     if (b != null) v.SetColor(b.Color);
-                    v.PlayInfection(OnAnimStep);
+                    v.PlayInfection(_onAnimStepCached);
                 }
-                else OnAnimStep();
+                else _onAnimStepCached();
             }
             return tcs.Task;
         }
 
         public Task PlayGravityAsync(sbyte[] fromRows, sbyte[] toRows, sbyte[] cols, int count, CancellationToken ct)
         {
-            if (count <= 0) return Task.CompletedTask;
+            if (count <= 0 || _viewGrid == null) return Task.CompletedTask;
             // Phase 1 MVP: teleport visuals; no tween yet. Mark all sync'd, return complete.
             // We move the stored view references in _viewGrid to match new positions.
             for (int i = 0; i < count; i++)
@@ -182,8 +185,8 @@ namespace Alchemist.View
                 int r = rows[i], c = cols[i];
                 SyncCell(r, c); // pulls fresh block from domain
                 var v = ViewAt(r, c);
-                if (v != null) v.PlaySpawn(OnAnimStep);
-                else OnAnimStep();
+                if (v != null) v.PlaySpawn(_onAnimStepCached);
+                else _onAnimStepCached();
             }
             return tcs.Task;
         }

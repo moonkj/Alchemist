@@ -5,17 +5,11 @@ using Alchemist.Domain.Colors;
 namespace Alchemist.Domain.Chain
 {
     /// <summary>
-    /// Seed-deterministic refill spawner. Uses System.Random (not UnityEngine.Random) for
-    /// Domain purity and cross-run reproducibility (replay / save-state verification in Phase 3).
-    ///
-    /// Allocates new Block instances by default (Phase 1 MVP). A pool-backed implementation
-    /// can be swapped in later by implementing IBlockSpawner with the same seed contract.
-    /// Palette is restricted to the three primaries (R/Y/B) — secondaries/tertiaries arise
-    /// exclusively from player-driven mixes (design intent from architecture.md §2.3).
+    /// Seed-deterministic refill spawner with internal Block pool (Wave3 F10).
+    /// Call <see cref="Return"/> when a Block leaves the board so the next refill reuses it.
     /// </summary>
     public sealed class DeterministicBlockSpawner : IBlockSpawner
     {
-        // Palette: only primaries spawn; mixing is the player's job.
         private static readonly ColorId[] Palette =
         {
             ColorId.Red,
@@ -26,16 +20,31 @@ namespace Alchemist.Domain.Chain
         private readonly Random _rng;
         private int _nextId;
 
-        public DeterministicBlockSpawner(int seed)
+        private Block[] _pool;
+        private int _poolCount;
+
+        public DeterministicBlockSpawner(int seed, int poolCapacity = 64)
         {
             _rng = new Random(seed);
             _nextId = 1;
+            _pool = new Block[poolCapacity > 0 ? poolCapacity : 64];
+            _poolCount = 0;
         }
 
         public Block SpawnRandom(int row, int col)
         {
-            var b = new Block();
-            b.Reset();
+            Block b;
+            if (_poolCount > 0)
+            {
+                _poolCount--;
+                b = _pool[_poolCount];
+                _pool[_poolCount] = null;
+                b.Reset();
+            }
+            else
+            {
+                b = new Block();
+            }
             b.Id = _nextId++;
             b.Color = Palette[_rng.Next(Palette.Length)];
             b.Row = row;
@@ -43,6 +52,18 @@ namespace Alchemist.Domain.Chain
             b.State = BlockState.Spawned;
             b.Kind = BlockKind.Normal;
             return b;
+        }
+
+        public void Return(Block b)
+        {
+            if (b == null) return;
+            if (_poolCount >= _pool.Length)
+            {
+                var grown = new Block[_pool.Length * 2];
+                for (int i = 0; i < _poolCount; i++) grown[i] = _pool[i];
+                _pool = grown;
+            }
+            _pool[_poolCount++] = b;
         }
     }
 }

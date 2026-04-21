@@ -45,11 +45,20 @@ namespace Alchemist.Domain.Scoring
         /// Handle a set of blocks of the same color exploding at a given chain depth.
         /// Returns the points awarded (may be negative for Black contamination).
         /// </summary>
+        /// <summary>
+        /// D19 (Wave3): separate creation counting from explosion scoring.
+        /// Called when a new color appears on the board (infection, refill, merge).
+        /// </summary>
+        public void OnColorCreated(ColorId color, int count)
+        {
+            if (count <= 0) return;
+            _score.AddColorCreated(color, count);
+        }
+
         public int OnBlocksExploded(ColorId color, int count, int chainDepth)
         {
             if (count <= 0) return 0;
 
-            _score.AddColorCreated(color, count);
             _score.SetChainDepth(chainDepth);
 
             int baseValue = BaseColorValue(color);
