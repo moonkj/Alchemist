@@ -39,7 +39,20 @@ namespace Alchemist.Bootstrap
         private string _toast = "";
         private float _toastUntil;
 
-        private GUIStyle _title, _hud, _body;
+        // Stage prompt — "Purple 5개 만들기, 12턴 이내"
+        private const ColorId GoalColor = ColorId.Purple;
+        private const int GoalCount = 5;
+        private const int MoveLimit = 12;
+        private int _goalProgress;
+        private bool _stageEnded;
+        private bool _stageCleared;
+        private int _stars;
+
+        private Texture2D _panelBgTex;
+        private Texture2D _barBgTex;
+        private Texture2D _barFillTex;
+        private Texture2D _overlayTex;
+        private GUIStyle _title, _hud, _body, _goalLabel, _overlayTitle, _overlayBody, _button;
 
         private void Start()
         {
@@ -115,19 +128,52 @@ namespace Alchemist.Bootstrap
             }
         }
 
+        /// <summary>
+        /// 물감 한 방울 느낌의 둥근 사각형 스프라이트(프로시저얼).
+        /// SDF 기반 rounded-square + 수직 그라디언트 + 좌상단 하이라이트 스팟.
+        /// </summary>
         private static Sprite BuildSquareSprite()
         {
-            const int sz = 64;
+            const int sz = 128;
             var tex = new Texture2D(sz, sz, TextureFormat.RGBA32, false);
             var px = new Color32[sz * sz];
+            float cx = sz / 2f, cy = sz / 2f;
+            float innerHalf = sz * 0.40f;
+            float cornerR = sz * 0.14f;
+            float aaPx = 2f;
+
             for (int y = 0; y < sz; y++)
-            for (int x = 0; x < sz; x++)
             {
-                bool edge = x < 2 || y < 2 || x >= sz - 2 || y >= sz - 2;
-                px[y * sz + x] = edge ? new Color32(0, 0, 0, 80) : new Color32(255, 255, 255, 255);
+                for (int x = 0; x < sz; x++)
+                {
+                    float rx = Mathf.Abs(x - cx) - innerHalf;
+                    float ry = Mathf.Abs(y - cy) - innerHalf;
+                    float dxc = Mathf.Max(0f, rx);
+                    float dyc = Mathf.Max(0f, ry);
+                    float cornerDist = Mathf.Sqrt(dxc * dxc + dyc * dyc);
+                    float sdf = cornerDist - cornerR;
+                    float alpha = Mathf.Clamp01(-sdf / aaPx + 0.5f);
+                    if (alpha <= 0f)
+                    {
+                        px[y * sz + x] = new Color32(0, 0, 0, 0);
+                        continue;
+                    }
+                    float topBias = 1f - (y / (float)sz);
+                    float bright = Mathf.Lerp(0.70f, 1.05f, topBias);
+                    float hdx = (x - cx + sz * 0.18f) / (sz * 0.20f);
+                    float hdy = (y - cy - sz * 0.14f) / (sz * 0.14f);
+                    float hDist = hdx * hdx + hdy * hdy;
+                    float highlight = Mathf.Clamp01(1f - hDist) * 0.35f;
+                    bright = Mathf.Clamp01(bright + highlight);
+                    byte v = (byte)(bright * 255f);
+                    byte a = (byte)(alpha * 255f);
+                    px[y * sz + x] = new Color32(v, v, v, a);
+                }
             }
+
             tex.SetPixels32(px);
             tex.filterMode = FilterMode.Bilinear;
+            tex.wrapMode = TextureWrapMode.Clamp;
             tex.Apply();
             return Sprite.Create(tex, new Rect(0, 0, sz, sz), new Vector2(0.5f, 0.5f), sz);
         }
@@ -251,7 +297,10 @@ namespace Alchemist.Bootstrap
             _blocks[sr, sc].color = ColorToUnity(ColorId.None);
             _blocks[tr, tc].transform.localScale = Vector3.one * (CellSize * 1.35f);
 
+            if (mixed == GoalColor) _goalProgress++;
+
             _moves++;
+            TriggerMixFeedback(_basePos[tr, tc], mixed);
             StartCoroutine(ResolveCascadeCoroutine(mixed));
         }
 
@@ -312,11 +361,63 @@ namespace Alchemist.Bootstrap
                 _score += totalScored + Mathf.Max(0, (depth - 1)) * 50;
                 ShowToast(depth > 1 ? ("연쇄 " + depth + "!  +" + totalScored) : ("폭발! +" + totalScored));
             }
-            else
+            else if (mixedColor != ColorId.None)
             {
                 ShowToast(ColorLabel(mixedColor));
             }
 
+            EvaluateStageOutcome();
+            _inputLocked = false;
+        }
+
+        private void EvaluateStageOutcome()
+        {
+            if (_stageEnded) return;
+            if (_goalProgress >= GoalCount)
+            {
+                _stageEnded = true;
+                _stageCleared = true;
+                _inputLocked = true;
+                // 별점: 여유 있을수록 ★ 많음
+                int remaining = MoveLimit - _moves;
+                if (remaining >= MoveLimit / 2) _stars = 3;
+                else if (remaining >= 2) _stars = 2;
+                else _stars = 1;
+                _score += 200 * _stars;
+                ShowToast("STAGE CLEAR! +" + (200 * _stars));
+            }
+            else if (_moves >= MoveLimit)
+            {
+                _stageEnded = true;
+                _stageCleared = false;
+                _inputLocked = true;
+                ShowToast("STAGE FAILED");
+            }
+        }
+
+        private void ResetStage()
+        {
+            _score = 0;
+            _moves = 0;
+            _maxChainDepth = 0;
+            _goalProgress = 0;
+            _stageEnded = false;
+            _stageCleared = false;
+            _stars = 0;
+            _toast = "";
+            _toastUntil = 0f;
+            _spawner = new DeterministicBlockSpawner(Seed);
+
+            for (int r = 0; r < Rows; r++)
+            for (int c = 0; c < Cols; c++)
+            {
+                var block = _spawner.SpawnRandom(r, c);
+                _colorGrid[r, c] = block.Color;
+                _blocks[r, c].color = ColorToUnity(block.Color);
+                _blocks[r, c].transform.position = _basePos[r, c];
+                _blocks[r, c].transform.localScale = Vector3.one * CellSize;
+                var col = _blocks[r, c].color; col.a = 1f; _blocks[r, c].color = col;
+            }
             _inputLocked = false;
         }
 
@@ -370,8 +471,93 @@ namespace Alchemist.Bootstrap
             return hits;
         }
 
+        private void TriggerMixFeedback(Vector3 worldPos, ColorId mixed)
+        {
+#if UNITY_IOS || UNITY_ANDROID
+            try { Handheld.Vibrate(); } catch { /* 일부 기기 미지원 */ }
+#endif
+            StartCoroutine(ScreenShake(0.12f, 0.05f));
+            SpawnPaintSplash(worldPos, ColorToUnity(mixed), 8, 0.35f);
+        }
+
+        private void TriggerExplosionFeedback(List<RC> cells)
+        {
+#if UNITY_IOS || UNITY_ANDROID
+            try { Handheld.Vibrate(); } catch { }
+#endif
+            float mag = Mathf.Min(0.22f, 0.05f + cells.Count * 0.012f);
+            StartCoroutine(ScreenShake(0.30f, mag));
+            for (int i = 0; i < cells.Count; i++)
+            {
+                var rc = cells[i];
+                SpawnPaintSplash(_basePos[rc.r, rc.c], _blocks[rc.r, rc.c].color, 14, 0.5f);
+            }
+        }
+
+        private IEnumerator ScreenShake(float duration, float magnitude)
+        {
+            var cam = Camera.main;
+            if (cam == null || duration <= 0f) yield break;
+            Vector3 orig = cam.transform.position;
+            float t = 0f;
+            while (t < duration)
+            {
+                float decay = 1f - (t / duration);
+                float ox = (Random.value - 0.5f) * 2f * magnitude * decay;
+                float oy = (Random.value - 0.5f) * 2f * magnitude * decay;
+                cam.transform.position = new Vector3(orig.x + ox, orig.y + oy, orig.z);
+                t += Time.deltaTime;
+                yield return null;
+            }
+            cam.transform.position = orig;
+        }
+
+        private void SpawnPaintSplash(Vector3 origin, Color color, int count, float lifetime)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                var go = new GameObject("Splash");
+                go.transform.position = origin;
+                float s = Random.Range(0.18f, 0.42f);
+                go.transform.localScale = Vector3.one * s;
+                var sr = go.AddComponent<SpriteRenderer>();
+                sr.sprite = _squareSprite;
+                sr.color = color;
+                sr.sortingOrder = 50;
+                float ang = Random.Range(0f, Mathf.PI * 2f);
+                float spd = Random.Range(1.2f, 3.6f);
+                var vel = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * spd;
+                StartCoroutine(SplashMotion(go, vel, lifetime));
+            }
+        }
+
+        private IEnumerator SplashMotion(GameObject go, Vector2 initialVel, float lifetime)
+        {
+            if (go == null) yield break;
+            var tr = go.transform;
+            var sr = go.GetComponent<SpriteRenderer>();
+            Vector2 vel = initialVel;
+            float t = 0f;
+            Vector3 pos = tr.position;
+            while (t < lifetime && go != null)
+            {
+                float u = t / lifetime;
+                vel *= 0.92f;
+                pos += (Vector3)(vel * Time.deltaTime);
+                tr.position = pos;
+                tr.localScale = Vector3.one * Mathf.Lerp(tr.localScale.x, 0.02f, u * 0.6f);
+                var c = sr.color;
+                c.a = 1f - u;
+                sr.color = c;
+                t += Time.deltaTime;
+                yield return null;
+            }
+            if (go != null) Destroy(go);
+        }
+
         private IEnumerator ExplodeAnim(List<RC> cells)
         {
+            TriggerExplosionFeedback(cells);
             const float dur = 0.35f;
             float t = 0f;
             while (t < dur)
@@ -542,36 +728,121 @@ namespace Alchemist.Bootstrap
             if (_title != null) return;
             _title = new GUIStyle(GUI.skin.label)
             {
-                fontSize = 28, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
+                fontSize = 22, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(0.98f, 0.94f, 0.82f, 1f) },
             };
             _hud = new GUIStyle(GUI.skin.label)
             {
-                fontSize = 18, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
+                fontSize = 16, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(0.90f, 0.92f, 0.95f, 1f) },
+            };
+            _goalLabel = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 18, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.62f, 0.31f, 0.87f, 1f) },
             };
             _body = new GUIStyle(GUI.skin.label)
             {
-                fontSize = 14, alignment = TextAnchor.MiddleCenter,
-                normal = { textColor = new Color(0.75f, 0.78f, 0.85f, 1f) },
+                fontSize = 13, alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new Color(0.70f, 0.73f, 0.80f, 1f) },
             };
+            _overlayTitle = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 48, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.98f, 0.94f, 0.82f, 1f) },
+            };
+            _overlayBody = new GUIStyle(GUI.skin.label)
+            {
+                fontSize = 22, alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new Color(0.90f, 0.92f, 0.95f, 1f) },
+            };
+            _button = new GUIStyle(GUI.skin.button) { fontSize = 22, fontStyle = FontStyle.Bold };
+
+            _panelBgTex = MakeSolidTexture(new Color(0.08f, 0.09f, 0.12f, 0.92f));
+            _barBgTex = MakeSolidTexture(new Color(0.20f, 0.22f, 0.28f, 1f));
+            _barFillTex = MakeSolidTexture(new Color(0.62f, 0.31f, 0.87f, 1f));
+            _overlayTex = MakeSolidTexture(new Color(0f, 0f, 0f, 0.75f));
+        }
+
+        private static Texture2D MakeSolidTexture(Color c)
+        {
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            var px = new[] { c, c, c, c };
+            tex.SetPixels(px);
+            tex.Apply();
+            return tex;
         }
 
         private void OnGUI()
         {
             EnsureStyles();
-            GUI.Label(new Rect(0, 30, Screen.width, 36), "Color Mix: Alchemist", _title);
-            GUI.Label(new Rect(20, 70, 400, 28), "점수 " + _score, _hud);
-            GUI.Label(new Rect(Screen.width - 220, 70, 200, 28), "턴 " + _moves + " · 최대연쇄 " + _maxChainDepth, _hud);
+            DrawTopHud();
+            DrawBottomHint();
+            DrawToast();
+            if (_stageEnded) DrawStageOverlay();
+        }
 
-            if (Time.time < _toastUntil && !string.IsNullOrEmpty(_toast))
+        private void DrawTopHud()
+        {
+            int w = Screen.width;
+            int topSafe = 50;
+            int panelH = 110;
+            var panel = new Rect(0, topSafe, w, panelH);
+            GUI.DrawTexture(panel, _panelBgTex);
+
+            GUI.Label(new Rect(20, topSafe + 8, w - 40, 28), "Color Mix: Alchemist", _title);
+
+            // Goal progress bar
+            int barX = 20, barW = w - 40, barH = 22;
+            int barY = topSafe + 42;
+            GUI.DrawTexture(new Rect(barX, barY, barW, barH), _barBgTex);
+            float prog = Mathf.Clamp01((float)_goalProgress / GoalCount);
+            GUI.DrawTexture(new Rect(barX, barY, (int)(barW * prog), barH), _barFillTex);
+            string goalText = "🟣 보라 " + _goalProgress + " / " + GoalCount;
+            GUI.Label(new Rect(barX, barY - 2, barW, barH + 4), goalText, _goalLabel);
+
+            // Moves + Score row
+            int infoY = topSafe + 74;
+            GUI.Label(new Rect(20, infoY, 200, 24), "턴 " + _moves + " / " + MoveLimit, _hud);
+            GUI.Label(new Rect(w - 220, infoY, 200, 24), "점수 " + _score, _hud);
+        }
+
+        private void DrawBottomHint()
+        {
+            int w = Screen.width, h = Screen.height;
+            GUI.Label(new Rect(0, h - 60, w, 24), "블록을 인접 셀로 드래그 · 보라(🔴+🔵) 5개 만들기!", _body);
+        }
+
+        private void DrawToast()
+        {
+            if (Time.time >= _toastUntil || string.IsNullOrEmpty(_toast)) return;
+            int w = Screen.width, h = Screen.height;
+            GUI.Label(new Rect(0, h - 150, w, 40), _toast, _overlayTitle);
+        }
+
+        private void DrawStageOverlay()
+        {
+            int w = Screen.width, h = Screen.height;
+            GUI.DrawTexture(new Rect(0, 0, w, h), _overlayTex);
+            string title = _stageCleared ? "STAGE CLEAR" : "STAGE FAILED";
+            GUI.Label(new Rect(0, h / 2 - 180, w, 64), title, _overlayTitle);
+
+            if (_stageCleared)
             {
-                GUI.Label(new Rect(0, Screen.height - 140, Screen.width, 40), _toast, _title);
+                string stars = "";
+                for (int i = 0; i < 3; i++) stars += (i < _stars) ? "★ " : "☆ ";
+                GUI.Label(new Rect(0, h / 2 - 110, w, 60), stars, _overlayTitle);
             }
 
-            GUI.Label(new Rect(0, Screen.height - 60, Screen.width, 24),
-                "블록을 인접 셀로 드래그해 섞으세요 · 2차색 3연결 시 폭발",
-                _body);
+            GUI.Label(new Rect(0, h / 2 - 40, w, 34), "점수 " + _score, _overlayBody);
+            GUI.Label(new Rect(0, h / 2, w, 28), "턴 " + _moves + " / " + MoveLimit + " · 최대연쇄 " + _maxChainDepth, _overlayBody);
+
+            int btnW = 240, btnH = 64;
+            var btnRect = new Rect((w - btnW) / 2, h / 2 + 80, btnW, btnH);
+            if (GUI.Button(btnRect, "다시 도전", _button))
+            {
+                ResetStage();
+            }
         }
     }
 }
