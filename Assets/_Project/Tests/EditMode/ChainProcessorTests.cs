@@ -182,7 +182,7 @@ namespace Alchemist.Tests.EditMode
             Action onExceeded = () => { exceededCallbackFired = true; };
 
             var spawner = new PurpleSpawner();
-            var proc = new ChainProcessor(board, new NoOpAnimationHub(), spawner, onExceeded);
+            var proc = new ChainProcessor(board, new NoOpAnimationHub(), spawner, null, onExceeded);
             var result = proc.ProcessTurnAsync(CancellationToken.None).GetAwaiter().GetResult();
 
             Assert.That(result.DepthExceeded && exceededCallbackFired && result.MaxDepth == ChainProcessor.MaxDepth, Is.True);

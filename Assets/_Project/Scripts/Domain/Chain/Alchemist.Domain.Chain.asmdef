@@ -4,7 +4,8 @@
     "references": [
         "Alchemist.Domain.Colors",
         "Alchemist.Domain.Blocks",
-        "Alchemist.Domain.Board"
+        "Alchemist.Domain.Board",
+        "Alchemist.Domain.Scoring"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
