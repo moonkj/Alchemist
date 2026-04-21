@@ -35,6 +35,12 @@ namespace Alchemist.Domain.Chain
         private readonly sbyte[] _refillRows;
         private readonly sbyte[] _refillCols;
 
+        // Phase 2 P2-02: 회색 블록 해제 카운터 — 턴마다 Reset, 폭발 때마다 누적.
+        // WHY 프로세서 소유: 테스트가 별도 주입 없이도 재활성 로직을 검증하려면
+        // ChainProcessor 가 기본적으로 tracker 를 포함하되 ReleaseTracker 프로퍼티로 노출.
+        private readonly GrayReleaseTracker _grayTracker;
+        public GrayReleaseTracker GrayTracker => _grayTracker;
+
         public ChainProcessor(
             Alchemist.Domain.Board.Board board,
             IChainAnimationHub anim,
@@ -61,6 +67,8 @@ namespace Alchemist.Domain.Chain
             _gravCols = new sbyte[cells];
             _refillRows = new sbyte[cells];
             _refillCols = new sbyte[cells];
+
+            _grayTracker = new GrayReleaseTracker(board);
         }
 
         public async Task<ChainResult> ProcessTurnAsync(CancellationToken ct)
@@ -68,6 +76,9 @@ namespace Alchemist.Domain.Chain
             int depth = 0;
             int totalExploded = 0;
             bool exceeded = false;
+
+            // Phase 2 P2-02: 턴 시작 시 회색 카운터 리셋 — 턴 경계 초과 누적 차단.
+            _grayTracker.Reset();
 
             while (true)
             {
@@ -110,6 +121,9 @@ namespace Alchemist.Domain.Chain
                         infectCount = TryInfect(r + 1, c, g.Color, infectCount, ref infectedMask);
                         infectCount = TryInfect(r, c - 1, g.Color, infectCount, ref infectedMask);
                         infectCount = TryInfect(r, c + 1, g.Color, infectCount, ref infectedMask);
+
+                        // Phase 2 P2-02: 회색 블록 인접 폭발 카운트 — 중복 폭발 셀은 visitedLo 로 이미 배제됨.
+                        _grayTracker.NotifyExplosionAt(r, c, g.Color);
                     }
 
                     if (_scorer != null && uniqueInGroup > 0)
@@ -141,6 +155,14 @@ namespace Alchemist.Domain.Chain
 
                 depth++;
             }
+
+            // Phase 2 P2-02: 캐스케이드 종료 후 누적 폭발 ≥ 임계치인 회색 블록 일괄 해제.
+            // WHY 캐스케이드 중간이 아닌 종료 시점: 한 턴 내 여러 폭발 파도를 합산해야
+            // "2회 이상" 규칙이 자연스럽게 성립하며, 중간 해제는 연쇄 매칭을 왜곡시킨다.
+            _grayTracker.SweepRelease();
+
+            // Phase 2 P2-03: 턴 종료 시 Prism 블록 승격 처리 — 보드가 stable 해진 후 1회.
+            PrismAbsorbProcessor.Process(_board);
 
             if (_scorer != null && totalExploded > 0)
             {
@@ -222,6 +244,12 @@ namespace Alchemist.Domain.Chain
                     if (b == null) continue;
                     if (r != writeRow)
                     {
+                        // Phase 2 P2-01: 낙하 경로(r → writeRow) 중간 Filter 셀을 통과하면 색 변환.
+                        // WHY r..writeRow 중간만: 출발 셀(r)은 이미 이전 상태, 착지 셀(writeRow)은 착지지점이므로
+                        // "통과" 의미를 엄격히 적용하려면 (r, writeRow) 개구간이 타당하나,
+                        // 블록이 Filter 셀 위에 정지할 수도 있으므로 착지 셀도 포함 — Wave1 FilterTransit 스펙 반영.
+                        ApplyFilterTransits(b, r, writeRow, c);
+
                         _board.SetBlock(writeRow, c, b);
                         _board.SetBlock(r, c, null);
                         if (count < _gravFromRows.Length)
@@ -236,6 +264,42 @@ namespace Alchemist.Domain.Chain
                 }
             }
             return count;
+        }
+
+        /// <summary>
+        /// Phase 2 P2-01: 낙하 통과 경로의 Filter 셀마다 색을 Mix 하고 FilterTransit 전이.
+        /// WHY: 블록이 위→아래 여러 Filter 를 누적 통과하면 각 단계마다 Mix 적용.
+        /// WHY 특수 블록 제외: Prism/Gray 는 규칙 외 (wildcard/inert).
+        /// </summary>
+        private void ApplyFilterTransits(Block b, int fromRow, int toRow, int col)
+        {
+            if (b == null) return;
+            if (b.Kind != BlockKind.Normal) return;
+
+            for (int pr = fromRow + 1; pr <= toRow; pr++)
+            {
+                var cell = _board.CellAt(pr, col);
+                if (cell.Layer != Alchemist.Domain.Board.CellLayer.Filter) continue;
+                if (cell.FilterColor == ColorId.None) continue;
+
+                ColorId mixed = ColorMixCache.Lookup(b.Color, cell.FilterColor);
+                // WHY None 결과 스킵: 무효한 혼합(예: Yellow+Yellow=Yellow 아닌 미정)은 원색 유지.
+                if (mixed == ColorId.None) continue;
+
+                var ctx = new TransitionContext(cell.FilterColor, b.Id, 0);
+                // FSM 가능 시 transit 상태를 한 사이클 거친 뒤 Idle 복귀 — 기존 전이 테이블 재사용.
+                if (b.State == BlockState.Idle && BlockFsm.TryTransition(b, BlockState.FilterTransit, ctx))
+                {
+                    b.Color = mixed;
+                    BlockFsm.TryTransition(b, BlockState.Idle, ctx);
+                }
+                else
+                {
+                    // Spawned/Infected 등 다른 상태라도 색 변환은 발생(시각 효과만 생략).
+                    b.Color = mixed;
+                }
+                _board.MarkDirty(pr, col);
+            }
         }
 
         private int ApplyRefill()

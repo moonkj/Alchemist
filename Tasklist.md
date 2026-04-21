@@ -29,10 +29,25 @@
 | P1-05 | 매치 탐지 & 폭발 규칙 (MatchDetector) | Coder-Wave2 | 🟨 | Wave 2 예정 |
 | P1-06 | 프롬프트 3종 (Condition/Goal/Prompt) | Coder-3 | 🟩 | 9 files, Wave 1 |
 | P1-07 | 점수 계산 (Scorer, ScoreConstants) | Coder-4 | 🟩 | 5 files, Wave 1 |
-| P1-08 | 디버깅 패스 (전 도메인) | Debugger | 🟦 | Wave 3 |
-| P1-09 | 단위/통합 테스트 (EditMode) | Test Engineer | 🟦 | Wave 3 |
-| P1-10 | 성능/최적화 리뷰 | Performance | 🟦 | Wave 3 |
-| P1-11 | 최종 코드 리뷰 | Reviewer | 🟦 | Wave 3 |
+| P1-08 | 디버깅 패스 (전 도메인) | Debugger | 🟩 | Report: Critical 5/High 12/Med 9/Low 10 |
+| P1-09 | 단위/통합 테스트 (EditMode) | Test Engineer | 🟩 | 104 케이스 |
+| P1-10 | 성능/최적화 리뷰 | Performance | 🟩 | Grade B+, Critical 3 |
+| P1-11 | 최종 코드 리뷰 | Reviewer | 🟩 | R1 FAIL → R2 PASS-with-minor |
+| P1-12 | Critical Fix (F1~F11) + D16~D22 | Architect | 🟩 | 11 files 수정 |
+| P1-13 | **Phase 1 완료 선언 + 태그 v0.1.0-phase1** | Architect | 🟩 | commit a9268f4 |
+
+## Phase 2 — Systems (진행 예정)
+
+| ID | 작업 | 담당 | 상태 |
+|----|------|------|------|
+| P2-01 | 필터 벽 (Cell.Filter + FilterTransit 상태) | TBA | 🟦 |
+| P2-02 | 회색 블록 (색 도둑 + Gray→Idle 재활성) | TBA | 🟦 |
+| P2-03 | 프리즘 블록 (Prism 승격 로직) | TBA | 🟦 |
+| P2-04 | 팔레트 슬롯 UI + Store/Use | TBA | 🟦 |
+| P2-05 | 프롬프트 확장 (고급/일일) | TBA | 🟦 |
+| P2-06 | 스테이지 데이터 SO (parMoves/maxMoves 분리, D22) | TBA | 🟦 |
+| P2-07 | MessagePipe 이벤트 허브 통합 (C5) | TBA | 🟦 |
+| P2-08 | Phase 1 백로그 이슈 해소 (H/M/L 선별) | TBA | 🟦 |
 
 ## Phase 2 — Systems (게임 시스템 확장)
 - 필터 벽 / 회색 블록 / 프리즘 블록

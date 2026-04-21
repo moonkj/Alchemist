@@ -23,5 +23,11 @@ namespace Alchemist.Domain.Prompts
 
         /// <summary>Stage-wide hard cap on moves. Zero or negative means uncapped.</summary>
         int MovesLimit { get; }
+
+        /// <summary>Phase 2: 필터 셀을 블록이 통과한 총 횟수(색 무관 합계).</summary>
+        int FilterTransits { get; }
+
+        /// <summary>Phase 2: 팔레트 슬롯의 Store/Use 조합 사용 횟수(한 쌍이 곧 1회).</summary>
+        int PaletteSlotUses { get; }
     }
 }

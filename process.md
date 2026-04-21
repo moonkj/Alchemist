@@ -67,3 +67,47 @@ D1 Unity 2D / D2 저사양 A10·2GB / D3 보드 6×7 / D4 팔레트 3슬롯 / D5
 - C3 OnBlocksExploded(count): 블록 수 곱
 - C4 Mix 엣지: White/Black/Prism/Gray 케이스 확정
 - C5 MessagePipe: Phase 2 이연, Phase 1은 델리게이트 필드
+
+---
+
+## 2026-04-21 — Phase 1 Wave 2 완료 (Board/Chain/View)
+
+### 산출물
+- Domain Board/Chain (Coder-5, 13 files — 1D 42셀 배열, 웨이브 큐)
+- View/UI/Bootstrap (Coder-6 + 리더 보완, 12 files)
+- 두 코더가 병렬 작업하여 `IChainAnimationHub` 시그니처 자동 정합
+
+### 교차레이어 결정 (Wave2 addendum)
+- 보드 6×7 고정 / 감염 4방향 / depth 10 하드캡
+
+## 2026-04-21 — Phase 1 Wave 3 완료 (Debug/Test/Perf)
+
+### 산출물
+- Debug Report (Critical 5 / High 12 / Medium 9 / Low 10)
+- Test Engineer 104 케이스 EditMode
+- Performance Review (Grade B+, Critical 3)
+
+### 아키텍트 결정 7건 (D16~D22)
+- D16 Mix(Black, X) = Black 오염 전파 재확정
+- D17 Prism 우선순위 (Gray/Black > Prism)
+- D18 MatchDetector H/V 분리 + ChainProcessor dedupe
+- D19 Scorer.OnColorCreated 신설 (생성 ≠ 폭발)
+- D20 infectedMask bitset (첫 감염만)
+- D21 감염 블록은 다음 depth 폭발
+- D22 Phase 1 par=movesLimit 허용
+
+### Wave 3 Fix (F1~F11) — Critical 8건 + 핵심 High 3건
+- F1 ColorMixer 재작성 / F2~F4 BoardView null 방어 + Scorer 주입
+- F5 GameRoot 초기 Refill / F6 infectedMask / F7 GameContext POCO
+- F8 NotifyMoveCommitted 전파 / F9 delegate 캐싱
+- F10 Spawner Block 풀 / F11 MatchGroup 사전 할당
+
+### Reviewer 라운드 (R1 FAIL → R2 PASS-with-minor)
+- R2-1 Chain asmdef에 Scoring 참조 누락 → 수정
+- R2-2 ChainProcessorTests ctor 인자 정렬 → 수정
+
+## Phase 1 완료 선언
+- GitHub 태그 `v0.1.0-phase1` (커밋 a9268f4)
+- Phase 2 백로그: H/M/L 잔여 이슈 + UX Q 유보 7건 (`docs/phase1_wave3_decisions.md` §2 참조)
+
+**다음 단계:** Phase 2 — 특수 블록(필터/회색/프리즘) + 팔레트 슬롯 + 프롬프트 확장

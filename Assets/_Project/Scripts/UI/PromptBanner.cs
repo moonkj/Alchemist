@@ -17,7 +17,10 @@ namespace Alchemist.UI
         {
             _prompt = prompt;
             if (_titleLabel != null && prompt != null)
-                _titleLabel.SetText(prompt.LocalizedTitleKey);
+            {
+                // WHY(BUG-H10): raw key 대신 LocalizerService 를 경유해 한국어 텍스트 표시.
+                _titleLabel.SetText(LocalizerService.Localize(prompt.LocalizedTitleKey));
+            }
         }
 
         public void SetContext(IPromptContext ctx)

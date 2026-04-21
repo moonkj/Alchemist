@@ -8,6 +8,8 @@
         "Alchemist.Domain.Chain",
         "Alchemist.Domain.Prompts",
         "Alchemist.Domain.Scoring",
+        "Alchemist.Domain.Palette",
+        "Alchemist.Domain.Stages",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

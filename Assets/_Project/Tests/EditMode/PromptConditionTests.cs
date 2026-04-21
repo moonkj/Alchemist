@@ -20,6 +20,8 @@ namespace Alchemist.Tests.EditMode
             public int MaxChainDepthAchieved { get; set; }
             public int MovesUsed { get; set; }
             public int MovesLimit { get; set; }
+            public int FilterTransits { get; set; }
+            public int PaletteSlotUses { get; set; }
 
             public int GetColorsCreated(ColorId color) { return _colors[(byte)color]; }
             public void SetColorsCreated(ColorId color, int count) { _colors[(byte)color] = count; }

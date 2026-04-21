@@ -37,6 +37,11 @@ namespace Alchemist.Domain.Blocks
             t[(int)BlockState.Idle, (int)BlockState.Absorbed] = true;
             t[(int)BlockState.Absorbed, (int)BlockState.Gray] = true;
 
+            // Phase 2 D20b: Absorbed -> Idle 재활성 (GrayReleaseTracker가 누적 폭발 2회 이상 확인 후 해제)
+            // WHY: 회색 블록이 인접 폭발을 충분히 흡수하면 Normal 블록으로 복귀해야 하는데,
+            // Wave1에서는 한 방향(Absorbed->Gray)만 허용했으므로 Phase 2에서 복귀 전이를 추가.
+            t[(int)BlockState.Absorbed, (int)BlockState.Idle] = true;
+
             // Idle -> FilterTransit -> Idle
             t[(int)BlockState.Idle, (int)BlockState.FilterTransit] = true;
             t[(int)BlockState.FilterTransit, (int)BlockState.Idle] = true;

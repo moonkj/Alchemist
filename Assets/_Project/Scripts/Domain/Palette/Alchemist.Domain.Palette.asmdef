@@ -1,0 +1,10 @@
+{
+    "name": "Alchemist.Domain.Palette",
+    "rootNamespace": "Alchemist.Domain.Palette",
+    "references": [
+        "Alchemist.Domain.Colors",
+        "Alchemist.Domain.Blocks"
+    ],
+    "autoReferenced": true,
+    "noEngineReferences": true
+}

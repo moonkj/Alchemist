@@ -1,12 +1,10 @@
 {
-    "name": "Alchemist.View",
-    "rootNamespace": "Alchemist.View",
+    "name": "Alchemist.Domain.Stages",
+    "rootNamespace": "Alchemist.Domain.Stages",
     "references": [
         "Alchemist.Domain.Colors",
         "Alchemist.Domain.Blocks",
-        "Alchemist.Domain.Board",
-        "Alchemist.Domain.Chain",
-        "Alchemist.Domain.Palette"
+        "Alchemist.Domain.Prompts"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

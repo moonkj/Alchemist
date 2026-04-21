@@ -68,6 +68,20 @@ namespace Alchemist.Domain.Board
             _cells[row * Cols + col].IsDirty = true;
         }
 
+        /// <summary>
+        /// Phase 2 P2-01: Filter/Wall 등 터레인 레이어를 지정하는 단일 API.
+        /// WHY: 필터 벽 테스트 픽스처가 Cell.Layer/FilterColor 두 필드를 동시에 설정해야
+        /// 일관성이 보장되므로(한 쪽만 설정 시 통과 로직 오작동), 세팅을 한 함수로 강제.
+        /// Layer != Filter 일 때 filterColor 는 ColorId.None 으로 클램프된다.
+        /// </summary>
+        public void SetCellLayer(int row, int col, CellLayer layer, ColorId filterColor)
+        {
+            var cell = _cells[row * Cols + col];
+            cell.Layer = layer;
+            cell.FilterColor = layer == CellLayer.Filter ? filterColor : ColorId.None;
+            cell.IsDirty = true;
+        }
+
         /// <summary>Clear all IsDirty flags after view consumption. for-loop (no LINQ).</summary>
         public void ClearDirtyFlags()
         {

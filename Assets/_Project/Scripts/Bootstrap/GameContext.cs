@@ -15,6 +15,8 @@ namespace Alchemist.Bootstrap
         private int _maxChainDepth;
         private int _movesUsed;
         private int _movesLimit;
+        private int _filterTransits;
+        private int _paletteSlotUses;
 
         public GameContext(Score score, int movesLimit)
         {
@@ -35,6 +37,22 @@ namespace Alchemist.Bootstrap
 
         public int MovesUsed => _movesUsed;
         public int MovesLimit => _movesLimit;
+        public int FilterTransits => _filterTransits;
+        public int PaletteSlotUses => _paletteSlotUses;
+
+        /// <summary>Phase 2: 필터 셀 통과 1회 기록. ChainProcessor 가 호출.</summary>
+        public void RecordFilterTransit(int count = 1)
+        {
+            if (count <= 0) return;
+            _filterTransits += count;
+        }
+
+        /// <summary>Phase 2: 팔레트 슬롯 사용(저장/꺼내기) 기록. Palette 이벤트로부터 호출.</summary>
+        public void RecordPaletteSlotUse(int count = 1)
+        {
+            if (count <= 0) return;
+            _paletteSlotUses += count;
+        }
 
         public void RecordChainEvent(int chainDepth)
         {
