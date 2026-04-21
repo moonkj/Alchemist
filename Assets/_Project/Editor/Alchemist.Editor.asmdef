@@ -1,0 +1,17 @@
+{
+    "name": "Alchemist.EditorTools",
+    "rootNamespace": "Alchemist.EditorTools",
+    "references": [
+        "Alchemist.Bootstrap",
+        "Unity.TextMeshPro"
+    ],
+    "includePlatforms": ["Editor"],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
