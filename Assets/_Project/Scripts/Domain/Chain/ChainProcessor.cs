@@ -108,7 +108,9 @@ namespace Alchemist.Domain.Chain
 
                 for (int gi = 0; gi < n; gi++)
                 {
-                    ref MatchGroup g = ref _hubBuffer[gi];
+                    // WHY: async 메서드 내부 ref local 금지(CS8177) — MatchGroup은 struct이지만
+                    // RowBuf/ColBuf가 배열 참조라 값 복사 비용이 저렴.
+                    var g = _hubBuffer[gi];
                     int uniqueInGroup = 0;
                     for (int k = 0; k < g.Count; k++)
                     {
@@ -126,7 +128,6 @@ namespace Alchemist.Domain.Chain
                         infectCount = TryInfect(r, c - 1, g.Color, infectCount, ref infectedMask);
                         infectCount = TryInfect(r, c + 1, g.Color, infectCount, ref infectedMask);
 
-                        // Phase 2 P2-02: 회색 블록 인접 폭발 카운트 — 중복 폭발 셀은 visitedLo 로 이미 배제됨.
                         _grayTracker.NotifyExplosionAt(r, c, g.Color);
                     }
 

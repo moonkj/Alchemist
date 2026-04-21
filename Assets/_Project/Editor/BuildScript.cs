@@ -5,7 +5,6 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
-using TMPro;
 using Alchemist.Bootstrap;
 
 namespace Alchemist.EditorTools
@@ -85,29 +84,15 @@ namespace Alchemist.EditorTools
             esGo.AddComponent<EventSystem>();
             esGo.AddComponent<StandaloneInputModule>();
 
-            var canvasGo = new GameObject("UI_Canvas");
-            var canvas = canvasGo.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            var scaler = canvasGo.AddComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(390f, 844f);
-            scaler.matchWidthOrHeight = 0.5f;
-            canvasGo.AddComponent<GraphicRaycaster>();
+            // WHY TMP 제거: TMP_Essential_Resources 가 프로젝트에 import 안된 상태에선
+            //             TextMeshProUGUI 가 아무것도 렌더링 못하고 검은 화면만 남음.
+            //             IMGUI(OnGUI) 기반 DebugSplashLabel 로 대체하여 항상 표시 보장.
+            var debugGo = new GameObject("DebugSplashLabel");
+            debugGo.AddComponent<DebugSplashLabel>();
 
-            var titleGo = new GameObject("TitleLabel");
-            titleGo.transform.SetParent(canvasGo.transform, false);
-            var rt = titleGo.AddComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0f, 0.5f);
-            rt.anchorMax = new Vector2(1f, 1f);
-            rt.offsetMin = new Vector2(16f, 16f);
-            rt.offsetMax = new Vector2(-16f, -16f);
-            var tmp = titleGo.AddComponent<TextMeshProUGUI>();
-            tmp.text = "<size=48>컬러 믹스: 연금술사</size>\n\n<size=24>v1.0.0</size>\n<size=18>빌드 파이프라인 동작 확인</size>\n\n<size=14>게임 플레이 Scene 은 다음 빌드에서</size>";
-            tmp.alignment = TextAlignmentOptions.Center;
-            tmp.color = Color.white;
-
-            var bootstrapGo = new GameObject("AppBootstrap");
-            bootstrapGo.AddComponent<AppBootstrap>();
+            // WHY AppBootstrap 제거: 현재 AppBootstrap 은 Audio/Haptic/Theme 싱글톤 등록 외에
+            //                       실제 게임 씬 구성을 안 함. 첫 빌드 검증 단계에서는 불필요.
+            //                       정식 게임플레이 Scene 이 연결되는 다음 빌드에서 재추가.
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };

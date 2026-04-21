@@ -2,8 +2,7 @@
     "name": "Alchemist.EditorTools",
     "rootNamespace": "Alchemist.EditorTools",
     "references": [
-        "Alchemist.Bootstrap",
-        "Unity.TextMeshPro"
+        "Alchemist.Bootstrap"
     ],
     "includePlatforms": ["Editor"],
     "excludePlatforms": [],

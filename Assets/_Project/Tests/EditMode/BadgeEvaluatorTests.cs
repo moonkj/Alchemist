@@ -49,7 +49,7 @@ namespace Alchemist.Tests.EditMode
 
             buf.Clear();
             eval.Evaluate(ctx, new Score(), extra, buf);
-            Assert.That(buf, Does.Not.Contain(BadgeId.FirstPurple));
+            Assert.That(buf, Has.No.Member(BadgeId.FirstPurple));
         }
 
         [Test]
@@ -62,7 +62,7 @@ namespace Alchemist.Tests.EditMode
             var extra = BadgeEvaluationStats.MidStage(0, 0);
 
             eval.Evaluate(ctx, new Score(), extra, buf);
-            Assert.That(buf, Does.Not.Contain(BadgeId.AllSecondaries));
+            Assert.That(buf, Has.No.Member(BadgeId.AllSecondaries));
 
             ctx.SetColors(ColorId.Purple, 1);
             buf.Clear();
@@ -113,7 +113,7 @@ namespace Alchemist.Tests.EditMode
             var ctx = new FakeCtx();
             var mid = new BadgeEvaluationStats(parMoves: 10, moveLimit: 15, promptProgress: 1f, promptSatisfied: true, isStageEnd: false);
             eval.Evaluate(ctx, new Score(), mid, buf);
-            Assert.That(buf, Does.Not.Contain(BadgeId.PromptPerfect));
+            Assert.That(buf, Has.No.Member(BadgeId.PromptPerfect));
 
             var end = new BadgeEvaluationStats(parMoves: 10, moveLimit: 15, promptProgress: 1f, promptSatisfied: true, isStageEnd: true);
             eval.Evaluate(ctx, new Score(), end, buf);
@@ -138,7 +138,7 @@ namespace Alchemist.Tests.EditMode
             ctx2.SetColors(ColorId.Gray, 3);
             ctx2.SetColors(ColorId.Red, 1);
             eval2.Evaluate(ctx2, new Score(), extra, buf2);
-            Assert.That(buf2, Does.Not.Contain(BadgeId.GrayOnly));
+            Assert.That(buf2, Has.No.Member(BadgeId.GrayOnly));
         }
 
         [Test]

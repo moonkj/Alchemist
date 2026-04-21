@@ -31,14 +31,14 @@ namespace Alchemist.UI
                 // WHY: LocalizerService 가 static 이라 직접 호출. 키 미등록 시 원문 반환.
                 string title = LocalizerService.Localize(art.LocalizedTitleKey);
                 int pct = Mathf.RoundToInt(art.Progress * 100f);
-                label.SetText("Ch.{0} {1} — {2}%", art.Chapter, title, pct);
+                label.text = string.Format("Ch.{0} {1} — {2}%", art.Chapter, title, pct);
                 _spawned.Add(label);
             }
 
             if (_overallLabel != null)
             {
                 int overall = Mathf.RoundToInt(profile.Gallery.OverallProgress() * 100f);
-                _overallLabel.SetText("Total: {0}%", overall);
+                _overallLabel.text = string.Format("Total: {0}%", overall);
             }
         }
 
