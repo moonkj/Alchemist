@@ -69,7 +69,25 @@ namespace Alchemist.Bootstrap
 
         // --------------- UI ---------------
         private Texture2D _panelBg, _barBg, _barFill, _overlayTex, _stageBtnBg;
-        private GUIStyle _title, _hud, _body, _goalLabel, _overlayTitle, _overlayBody, _button, _stageBtn;
+        private Texture2D _toastSuccessBg, _toastWarnBg, _toastDangerBg, _toastNeutralBg;
+        private Texture2D _primaryBtnBg, _ghostBtnBg, _dimOverlay;
+        private GUIStyle _display, _heading, _body, _caption, _goalLabel, _overlayTitle, _overlayBody, _primaryBtn, _ghostBtn, _stageBtn, _scoreBig;
+        private ColorId _lastBarColor = ColorId.None;
+
+        // Toast 종류
+        private enum ToastKind { Success, Warn, Danger, Neutral }
+        private ToastKind _toastKind = ToastKind.Neutral;
+        // 입력 잠금 인디케이터 용 타이밍
+        private float _cascadeStartTime;
+
+        // 결과 화면 시퀀스
+        private float _resultEnterT; // 0~1 진행도
+        private int _displayedScore;
+        private float[] _starLit = new float[3];
+
+        // 화면 전환 페이드
+        private float _screenFade = 1f; // 1 = 완전 표시
+        private ScreenState _pendingScreen = ScreenState.Lobby;
 
         // --------------- Lifecycle ---------------
         private void Start()
@@ -182,6 +200,16 @@ namespace Alchemist.Bootstrap
         private void Update()
         {
             UpdateScaleDecay();
+
+            // HUD 점수 부드러운 count-up — 목표값으로 0.3s 동안 수렴
+            if (_displayedScore != _score)
+            {
+                int diff = _score - _displayedScore;
+                int step = Mathf.Max(1, (int)(Mathf.Abs(diff) * Time.deltaTime * 6f));
+                if (Mathf.Abs(diff) <= step) _displayedScore = _score;
+                else _displayedScore += (diff > 0 ? step : -step);
+            }
+
             if (_screen != ScreenState.Playing || _inputLocked) return;
 
             bool began = false, moved = false, ended = false;
@@ -268,9 +296,9 @@ namespace Alchemist.Bootstrap
         {
             ColorId src = _colorGrid[sr, sc];
             ColorId dst = _colorGrid[tr, tc];
-            if (src == ColorId.None || dst == ColorId.None) { ShowToast("빈 칸"); return; }
+            if (src == ColorId.None || dst == ColorId.None) { ShowToast("빈 칸", ToastKind.Warn); return; }
             ColorId mixed = ColorMixer.Mix(src, dst);
-            if (mixed == ColorId.None) { ShowToast("혼합 불가"); return; }
+            if (mixed == ColorId.None) { ShowToast("혼합 불가", ToastKind.Danger); return; }
 
             _colorGrid[tr, tc] = mixed;
             _colorGrid[sr, sc] = ColorId.None;
@@ -304,7 +332,7 @@ namespace Alchemist.Bootstrap
                 var hits = DetectMatches();
                 if (hits.Count == 0) break;
                 depth++;
-                yield return StartCoroutine(ExplodeAnim(hits));
+                yield return StartCoroutine(ExplodeAnim(hits, depth));
                 foreach (var rc in hits)
                 {
                     var col = _colorGrid[rc.r, rc.c];
@@ -326,11 +354,11 @@ namespace Alchemist.Bootstrap
             if (totalScored > 0)
             {
                 _score += totalScored + Mathf.Max(0, (depth - 1)) * 50;
-                ShowToast(depth > 1 ? ("연쇄 " + depth + "!  +" + totalScored) : ("폭발! +" + totalScored));
+                ShowToast(depth > 1 ? ("연쇄 " + depth + "!  +" + totalScored) : ("폭발! +" + totalScored), ToastKind.Success);
             }
             else if (mixedColor != ColorId.None)
             {
-                ShowToast(ColorLabel(mixedColor));
+                ShowToast(ColorLabel(mixedColor), ToastKind.Neutral);
             }
 
             EvaluateStageOutcome();
@@ -349,7 +377,9 @@ namespace Alchemist.Bootstrap
                 else _stars = 1;
                 _score += 200 * _stars;
                 SaveStars(_stage.Id, _stars);
-                ShowToast("STAGE CLEAR! +" + (200 * _stars));
+                ShowToast("STAGE CLEAR! +" + (200 * _stars), ToastKind.Success);
+                _resultEnterT = 0f;
+                for (int i = 0; i < _starLit.Length; i++) _starLit[i] = 0f;
                 PlaySfx(_sfxClear);
                 _inputLocked = true;
                 StartCoroutine(EndStageAfter(0.8f));
@@ -357,7 +387,8 @@ namespace Alchemist.Bootstrap
             else if (_moves >= _stage.MoveLimit)
             {
                 _stageCleared = false;
-                ShowToast("STAGE FAILED");
+                ShowToast("STAGE FAILED", ToastKind.Danger);
+                _resultEnterT = 0f;
                 PlaySfx(_sfxFail);
                 _inputLocked = true;
                 StartCoroutine(EndStageAfter(0.6f));
@@ -413,9 +444,9 @@ namespace Alchemist.Bootstrap
             return 10;
         }
 
-        private IEnumerator ExplodeAnim(List<RC> cells)
+        private IEnumerator ExplodeAnim(List<RC> cells, int depth = 1)
         {
-            TriggerExplosionFeedback(cells);
+            TriggerExplosionFeedback(cells, depth);
             const float dur = 0.35f;
             float t = 0f;
             while (t < dur)
@@ -562,16 +593,61 @@ namespace Alchemist.Bootstrap
             SpawnPaintSplash(worldPos, ColorToUnity(mixed), 8, 0.35f);
             PlaySfx(_sfxMix);
         }
-        private void TriggerExplosionFeedback(List<RC> cells)
+        private void TriggerExplosionFeedback(List<RC> cells, int depth)
         {
+            // Chain depth 에스컬레이션 (Juice #1)
+            int d = Mathf.Clamp(depth, 1, 10);
+            float shakeMag = Mathf.Min(0.22f, 0.05f + (d - 1) * 0.035f);
+            float shakeDur = Mathf.Min(0.75f, 0.30f + (d - 1) * 0.05f);
+            int particlesPerCell = Mathf.Min(48, 14 + (d - 1) * 4);
+            float sfxPitch = Mathf.Min(1.5f, 1.0f + (d - 1) * 0.06f);
+
 #if UNITY_IOS || UNITY_ANDROID
             try { Handheld.Vibrate(); } catch { }
+            if (d >= 3) { try { Handheld.Vibrate(); } catch { } } // 깊은 연쇄는 2회 tap
 #endif
-            float mag = Mathf.Min(0.22f, 0.05f + cells.Count * 0.012f);
-            StartCoroutine(ScreenShake(0.30f, mag));
+            StartCoroutine(ScreenShake(shakeDur, shakeMag));
             for (int i = 0; i < cells.Count; i++)
-                SpawnPaintSplash(_basePos[cells[i].r, cells[i].c], _blocks[cells[i].r, cells[i].c].color, 14, 0.5f);
-            PlaySfx(_sfxExplode);
+                SpawnPaintSplash(_basePos[cells[i].r, cells[i].c], _blocks[cells[i].r, cells[i].c].color, particlesPerCell, 0.5f);
+
+            // 깊은 연쇄엔 풀스크린 플래시 (fade-out via coroutine)
+            if (d >= 3) StartCoroutine(FullScreenFlash(d));
+
+            // SFX — pitch 변화 후 재생, 다음 호출 전 리셋
+            if (_audio != null && _sfxExplode != null)
+            {
+                float oldPitch = _audio.pitch;
+                _audio.pitch = sfxPitch;
+                _audio.PlayOneShot(_sfxExplode, 0.85f);
+                _audio.pitch = oldPitch;
+            }
+        }
+
+        private IEnumerator FullScreenFlash(int depth)
+        {
+            var go = new GameObject("FSFlash");
+            var sr = go.AddComponent<SpriteRenderer>();
+            sr.sprite = _squareSprite;
+            sr.color = depth >= 5 ? new Color(1f, 0.88f, 0.45f, 0.7f) : new Color(1f, 1f, 1f, 0.45f);
+            sr.sortingOrder = 100;
+            var cam = Camera.main;
+            if (cam != null)
+            {
+                float size = cam.orthographicSize * 2.5f;
+                go.transform.position = cam.transform.position + Vector3.forward * 9.5f;
+                go.transform.localScale = Vector3.one * size;
+            }
+            float t = 0f, dur = depth >= 5 ? 0.28f : 0.18f;
+            while (t < dur)
+            {
+                float u = t / dur;
+                var c = sr.color;
+                c.a = Mathf.Lerp(sr.color.a, 0f, u * u);
+                sr.color = c;
+                t += Time.deltaTime;
+                yield return null;
+            }
+            Destroy(go);
         }
         private IEnumerator ScreenShake(float duration, float magnitude)
         {
@@ -705,7 +781,12 @@ namespace Alchemist.Bootstrap
             if (c == ColorId.Black) return "검정(오염)";
             return c.ToString();
         }
-        private void ShowToast(string msg) { _toast = msg; _toastUntil = Time.time + 1.2f; }
+        private void ShowToast(string msg, ToastKind kind = ToastKind.Neutral)
+        {
+            _toast = msg;
+            _toastKind = kind;
+            _toastUntil = Time.time + 1.4f;
+        }
 
         private static Sprite BuildSquareSprite()
         {
@@ -744,27 +825,73 @@ namespace Alchemist.Bootstrap
         // --------------- GUI ---------------
         private void EnsureStyles()
         {
-            if (_title != null) return;
-            _title = new GUIStyle(GUI.skin.label) { fontSize = 22, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
+            if (_display != null) return;
+            // 타이포 스케일 — display 40 / heading 28 / score_big 32 / body 16 / caption 12 (UX v3 #4)
+            _display = new GUIStyle(GUI.skin.label) { fontSize = 40, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(0.98f, 0.94f, 0.82f, 1f) } };
-            _hud = new GUIStyle(GUI.skin.label) { fontSize = 16, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
-                normal = { textColor = new Color(0.90f, 0.92f, 0.95f, 1f) } };
-            _goalLabel = new GUIStyle(GUI.skin.label) { fontSize = 18, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
+            _heading = new GUIStyle(GUI.skin.label) { fontSize = 28, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.96f, 0.97f, 0.99f, 1f) } };
+            _scoreBig = new GUIStyle(GUI.skin.label) { fontSize = 32, alignment = TextAnchor.MiddleRight, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(1f, 0.92f, 0.55f, 1f) } };
+            _goalLabel = new GUIStyle(GUI.skin.label) { fontSize = 20, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(0.98f, 0.94f, 0.82f, 1f) } };
-            _body = new GUIStyle(GUI.skin.label) { fontSize = 13, alignment = TextAnchor.MiddleCenter,
-                normal = { textColor = new Color(0.70f, 0.73f, 0.80f, 1f) } };
-            _overlayTitle = new GUIStyle(GUI.skin.label) { fontSize = 48, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
+            _body = new GUIStyle(GUI.skin.label) { fontSize = 16, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.75f, 0.78f, 0.85f, 1f) } };
+            _caption = new GUIStyle(GUI.skin.label) { fontSize = 12, alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new Color(0.58f, 0.62f, 0.70f, 1f) } };
+            _overlayTitle = new GUIStyle(GUI.skin.label) { fontSize = 52, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(0.98f, 0.94f, 0.82f, 1f) } };
-            _overlayBody = new GUIStyle(GUI.skin.label) { fontSize = 22, alignment = TextAnchor.MiddleCenter,
-                normal = { textColor = new Color(0.90f, 0.92f, 0.95f, 1f) } };
-            _button = new GUIStyle(GUI.skin.button) { fontSize = 22, fontStyle = FontStyle.Bold };
-            _stageBtn = new GUIStyle(GUI.skin.button) { fontSize = 20, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            _overlayBody = new GUIStyle(GUI.skin.label) { fontSize = 20, alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new Color(0.85f, 0.88f, 0.93f, 1f) } };
+            _primaryBtn = new GUIStyle(GUI.skin.button) { fontSize = 22, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            _ghostBtn = new GUIStyle(GUI.skin.button) { fontSize = 18, alignment = TextAnchor.MiddleCenter };
+            _stageBtn = new GUIStyle(GUI.skin.button) { fontSize = 18, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
 
             _panelBg = MakeSolidTexture(new Color(0.08f, 0.09f, 0.12f, 0.92f));
             _barBg = MakeSolidTexture(new Color(0.20f, 0.22f, 0.28f, 1f));
             _barFill = MakeSolidTexture(new Color(0.62f, 0.31f, 0.87f, 1f));
             _overlayTex = MakeSolidTexture(new Color(0f, 0f, 0f, 0.82f));
             _stageBtnBg = MakeSolidTexture(new Color(0.18f, 0.20f, 0.28f, 1f));
+            // Toast 시맨틱 컬러 (UX v3 #3) — success/warn/danger/neutral
+            _toastSuccessBg = MakeSolidTexture(new Color(0.13f, 0.77f, 0.37f, 0.95f));
+            _toastWarnBg = MakeSolidTexture(new Color(0.96f, 0.62f, 0.04f, 0.95f));
+            _toastDangerBg = MakeSolidTexture(new Color(0.94f, 0.27f, 0.27f, 0.95f));
+            _toastNeutralBg = MakeSolidTexture(new Color(0.22f, 0.24f, 0.30f, 0.95f));
+            _primaryBtnBg = MakeSolidTexture(new Color(0.62f, 0.31f, 0.87f, 1f));
+            _ghostBtnBg = MakeSolidTexture(new Color(0.16f, 0.18f, 0.24f, 0.6f));
+            _dimOverlay = MakeSolidTexture(new Color(0f, 0f, 0f, 0.35f));
+        }
+
+        /// <summary>Safe area 대응 (노치/다이나믹 아일랜드/홈 인디케이터).</summary>
+        private Rect GetSafeArea()
+        {
+            var sa = Screen.safeArea;
+            // OnGUI 는 상단 원점 / Screen.safeArea 는 하단 원점 — Y 변환.
+            float top = Screen.height - (sa.y + sa.height);
+            return new Rect(sa.x, top, sa.width, sa.height);
+        }
+
+        private void OnDestroy()
+        {
+            // Coroutine + 런타임 생성 텍스처 누수 방지 (Arch v3 #1)
+            StopAllCoroutines();
+            DestroyTex(ref _panelBg);
+            DestroyTex(ref _barBg);
+            DestroyTex(ref _barFill);
+            DestroyTex(ref _overlayTex);
+            DestroyTex(ref _stageBtnBg);
+            DestroyTex(ref _toastSuccessBg);
+            DestroyTex(ref _toastWarnBg);
+            DestroyTex(ref _toastDangerBg);
+            DestroyTex(ref _toastNeutralBg);
+            DestroyTex(ref _primaryBtnBg);
+            DestroyTex(ref _ghostBtnBg);
+            DestroyTex(ref _dimOverlay);
+        }
+
+        private static void DestroyTex(ref Texture2D t)
+        {
+            if (t != null) { Destroy(t); t = null; }
         }
 
         private void OnGUI()
@@ -780,13 +907,15 @@ namespace Alchemist.Bootstrap
 
         private void DrawLobby()
         {
-            int w = Screen.width, h = Screen.height;
-            GUI.Label(new Rect(0, 80, w, 70), "Color Mix: Alchemist", _overlayTitle);
-            GUI.Label(new Rect(0, 150, w, 26), "색을 섞고 폭발시켜 세상을 복원하라", _overlayBody);
+            var sa = GetSafeArea();
+            int w = Screen.width;
+            int titleY = (int)(sa.y + 48);
+            GUI.Label(new Rect(0, titleY, w, 56), "Color Mix: Alchemist", _display);
+            GUI.Label(new Rect(0, titleY + 64, w, 22), "색을 설계하고 폭발시켜 세상을 복원하라", _overlayBody);
 
-            int btnW = Mathf.Min(w - 60, 420);
-            int btnH = 80;
-            int startY = (int)(h * 0.30f);
+            int btnW = Mathf.Min(w - 40, 420);
+            int btnH = 88;
+            int startY = titleY + 140;
             int gap = 12;
 
             for (int i = 0; i < Stages.Length; i++)
@@ -810,71 +939,191 @@ namespace Alchemist.Bootstrap
 
         private void DrawPlayingHud()
         {
-            int w = Screen.width; int topSafe = 50; int panelH = 120;
-            GUI.DrawTexture(new Rect(0, topSafe, w, panelH), _panelBg);
-            GUI.Label(new Rect(20, topSafe + 8, w - 160, 28), _stage.Title, _title);
+            var sa = GetSafeArea();
+            int w = Screen.width;
+            int topSafe = (int)sa.y + 8;
+            int panelH = 130;
 
-            // 좌상단 뒤로가기
-            if (GUI.Button(new Rect(w - 90, topSafe + 10, 70, 30), "로비"))
+            // 상단 패널
+            GUI.DrawTexture(new Rect(0, topSafe, w, panelH), _panelBg);
+            GUI.Label(new Rect(16, topSafe + 10, w - 100, 32), _stage.Title, _heading);
+
+            // 우상단 로비 버튼
+            if (GUI.Button(new Rect(w - 88, topSafe + 10, 72, 32), "로비", _ghostBtn))
             {
                 ExitToLobby();
             }
 
-            int barX = 20, barW = w - 40, barH = 22, barY = topSafe + 46;
+            // 진행 바 — 스테이지 목표 색 동적 적용 (UX v3 #1)
+            EnsureBarFillFor(_stage.GoalColor);
+            int barX = 16, barW = w - 32, barH = 24, barY = topSafe + 52;
             GUI.DrawTexture(new Rect(barX, barY, barW, barH), _barBg);
             float prog = Mathf.Clamp01((float)_goalProgress / _stage.GoalCount);
             GUI.DrawTexture(new Rect(barX, barY, (int)(barW * prog), barH), _barFill);
-            string goalText = ColorLabel(_stage.GoalColor) + " " + _goalProgress + " / " + _stage.GoalCount;
+            // 임계값 강조: 1개 남으면 바 펄스
+            if (_goalProgress >= _stage.GoalCount - 1 && _goalProgress < _stage.GoalCount)
+            {
+                float pulse = 0.5f + 0.5f * Mathf.Sin(Time.time * 8f);
+                GUI.color = new Color(1f, 1f, 1f, 0.25f * pulse);
+                GUI.DrawTexture(new Rect(barX, barY, (int)(barW * prog), barH), _barFill);
+                GUI.color = Color.white;
+            }
+            string goalText = ColorLabel(_stage.GoalColor) + "  " + _goalProgress + " / " + _stage.GoalCount;
             GUI.Label(new Rect(barX, barY - 2, barW, barH + 4), goalText, _goalLabel);
 
-            int infoY = topSafe + 84;
-            GUI.Label(new Rect(20, infoY, 200, 24), "턴 " + _moves + " / " + _stage.MoveLimit, _hud);
-            GUI.Label(new Rect(w - 220, infoY, 200, 24), "점수 " + _score, _hud);
+            // 하단 정보 행: 턴(좌) + 점수(우) — scoreBig 스타일로 성취감
+            int infoY = topSafe + 88;
+            GUI.Label(new Rect(16, infoY, 260, 34), "턴 " + _moves + " / " + _stage.MoveLimit, _body);
+            GUI.Label(new Rect(w - 240 - 16, infoY - 4, 240, 40), _displayedScore.ToString("N0"), _scoreBig);
 
-            GUI.Label(new Rect(0, Screen.height - 50, w, 22),
-                "인접 셀로 드래그 · 같은 2차색 3개 연결 시 폭발",
-                _body);
+            // 캐스케이드 중이면 입력 잠금 인디케이터 (UX v3 #6)
+            if (_inputLocked && _screen == ScreenState.Playing)
+            {
+                GUI.DrawTexture(new Rect(0, topSafe + panelH, w, Screen.height - topSafe - panelH), _dimOverlay);
+                GUI.Label(new Rect(0, (Screen.height + topSafe + panelH) / 2 - 16, w, 32), "연쇄 처리 중…", _overlayBody);
+            }
+
+            // 하단 힌트 (safeArea 하단 여백 확보)
+            float bottomSafeY = Screen.height - (sa.y + sa.height);
+            int hintY = (int)(Screen.height - bottomSafeY - 32);
+            GUI.Label(new Rect(0, hintY, w, 20), "인접 셀로 드래그 · 같은 2차색 3개 연결 시 폭발", _caption);
+        }
+
+        /// <summary>진행 바를 목표 색으로 지연 교체.</summary>
+        private void EnsureBarFillFor(ColorId goal)
+        {
+            if (_lastBarColor == goal && _barFill != null) return;
+            if (_barFill != null) Destroy(_barFill);
+            _barFill = MakeSolidTexture(ColorToUnity(goal));
+            _lastBarColor = goal;
         }
 
         private void DrawToast()
         {
             if (Time.time >= _toastUntil || string.IsNullOrEmpty(_toast)) return;
-            int w = Screen.width, h = Screen.height;
-            GUI.Label(new Rect(0, h - 140, w, 40), _toast, _overlayTitle);
+            int w = Screen.width;
+            var sa = GetSafeArea();
+            float bottomSafeY = Screen.height - (sa.y + sa.height);
+            int y = (int)(Screen.height - bottomSafeY - 100);
+            float u = Mathf.Clamp01(1f - (_toastUntil - Time.time) / 0.35f); // fade-out 0.35s
+            float alpha = (_toastUntil - Time.time > 0.35f) ? 1f : 1f - u;
+
+            Texture2D bg;
+            switch (_toastKind)
+            {
+                case ToastKind.Success: bg = _toastSuccessBg; break;
+                case ToastKind.Warn: bg = _toastWarnBg; break;
+                case ToastKind.Danger: bg = _toastDangerBg; break;
+                default: bg = _toastNeutralBg; break;
+            }
+            int toastW = Mathf.Min(w - 48, 520);
+            int toastH = 56;
+            var rect = new Rect((w - toastW) / 2, y, toastW, toastH);
+            GUI.color = new Color(1f, 1f, 1f, alpha);
+            GUI.DrawTexture(rect, bg);
+            var labelStyle = new GUIStyle(_heading) { alignment = TextAnchor.MiddleCenter, normal = { textColor = new Color(1f, 1f, 1f, alpha) } };
+            GUI.Label(rect, _toast, labelStyle);
+            GUI.color = Color.white;
         }
 
         private void DrawResult()
         {
             int w = Screen.width, h = Screen.height;
+
+            // 결과 오버레이 페이드 인 (Juice #4)
+            _resultEnterT = Mathf.MoveTowards(_resultEnterT, 1f, Time.deltaTime / 0.55f);
+            float alphaOv = Mathf.Clamp01(_resultEnterT) * 0.82f;
+            GUI.color = new Color(1f, 1f, 1f, alphaOv);
             GUI.DrawTexture(new Rect(0, 0, w, h), _overlayTex);
+            GUI.color = Color.white;
+
+            // 보드 scale fade — 결과 진입 시 보드 0.7x 로 줄어듦
+            float boardScale = Mathf.Lerp(1f, 0.7f, _resultEnterT);
+            for (int r = 0; r < Rows; r++)
+            for (int c = 0; c < Cols; c++)
+            {
+                if (_blocks[r, c] == null) continue;
+                _blocks[r, c].transform.localScale = Vector3.one * (CellSize * boardScale);
+            }
+
+            // 타이틀 slide-up + fade in
+            float titleU = Mathf.Clamp01((_resultEnterT - 0.15f) / 0.45f);
+            float titleOffset = Mathf.Lerp(40f, 0f, EaseOutQuart(titleU));
+            GUI.color = new Color(1f, 1f, 1f, titleU);
             string title = _stageCleared ? "STAGE CLEAR" : "STAGE FAILED";
-            GUI.Label(new Rect(0, h / 2 - 200, w, 64), title, _overlayTitle);
+            var titleStyle = new GUIStyle(_overlayTitle) {
+                normal = { textColor = _stageCleared ? new Color(1f, 0.83f, 0.30f, 1f) : new Color(0.94f, 0.27f, 0.27f, 1f) }
+            };
+            GUI.Label(new Rect(0, h / 2 - 210 + titleOffset, w, 68), title, titleStyle);
+            GUI.color = Color.white;
+
+            // 별점 순차 점등
             if (_stageCleared)
             {
-                string stars = "";
-                for (int i = 0; i < 3; i++) stars += (i < _stars) ? "★ " : "☆ ";
-                GUI.Label(new Rect(0, h / 2 - 130, w, 60), stars, _overlayTitle);
+                int starSize = 52;
+                int starGap = 16;
+                int totalStarW = 3 * starSize + 2 * starGap;
+                int sx0 = (w - totalStarW) / 2;
+                int sy = h / 2 - 120;
+                for (int i = 0; i < 3; i++)
+                {
+                    float startT = 0.60f + i * 0.22f;
+                    _starLit[i] = Mathf.MoveTowards(_starLit[i], (_resultEnterT >= startT && i < _stars) ? 1f : 0f, Time.deltaTime / 0.35f);
+                    float lit = _starLit[i];
+                    float scale = Mathf.Lerp(0.3f, 1f, lit < 0.5f ? lit * 2f : 1f - (lit - 0.5f) * 0.6f);
+                    GUI.color = new Color(1f, 1f, 1f, Mathf.Clamp01(lit));
+                    var starStyle = new GUIStyle(_overlayTitle) {
+                        fontSize = (int)(starSize * scale),
+                        normal = { textColor = new Color(1f, 0.86f, 0.34f, 1f) }
+                    };
+                    GUI.Label(new Rect(sx0 + i * (starSize + starGap), sy, starSize, starSize), "★", starStyle);
+                }
+                GUI.color = Color.white;
             }
-            GUI.Label(new Rect(0, h / 2 - 50, w, 34), "점수 " + _score, _overlayBody);
-            GUI.Label(new Rect(0, h / 2 - 10, w, 28), "턴 " + _moves + " / " + _stage.MoveLimit + " · 최대연쇄 " + _maxChainDepth, _overlayBody);
 
-            int btnW = 240, btnH = 60, gap = 16;
+            // 점수 count-up (결과 진입 0.3s 부터 0.9s 에 걸쳐)
+            float scoreU = Mathf.Clamp01((_resultEnterT - 0.30f) / 0.60f);
+            int shownScore = (int)Mathf.Round(Mathf.Lerp(0f, _score, EaseOutQuart(scoreU)));
+            GUI.color = new Color(1f, 1f, 1f, scoreU);
+            GUI.Label(new Rect(0, h / 2 - 30, w, 40), shownScore.ToString("N0"), new GUIStyle(_display) { alignment = TextAnchor.MiddleCenter });
+            GUI.Label(new Rect(0, h / 2 + 16, w, 28), "턴 " + _moves + " / " + _stage.MoveLimit + " · 최대연쇄 " + _maxChainDepth, _overlayBody);
+            GUI.color = Color.white;
+
+            // 버튼 레이아웃 수정 — 동적 폭 (UX v3 #2)
+            int gap = 16;
+            int btnH = 64;
+            int avail = w - 32; // 16pt 좌우 여백
+            int btnW = Mathf.Min(200, (avail - gap) / 2);
             bool hasNext = _stageCleared && _stageIdx < Stages.Length - 1;
-            int btnsCount = 2;
-            int totalW = btnsCount * btnW + (btnsCount - 1) * gap;
+            int totalW = 2 * btnW + gap;
             int x0 = (w - totalW) / 2;
-            int y = h / 2 + 60;
+            int by = h / 2 + 90;
 
-            if (GUI.Button(new Rect(x0, y, btnW, btnH), _stageCleared ? "재도전" : "다시", _button))
+            float btnU = Mathf.Clamp01((_resultEnterT - 0.80f) / 0.20f);
+            GUI.color = new Color(1f, 1f, 1f, btnU);
+
+            // 좌 = ghost 스타일 (재도전/다시)
+            GUI.backgroundColor = new Color(0.32f, 0.34f, 0.40f, 1f);
+            if (GUI.Button(new Rect(x0, by, btnW, btnH), _stageCleared ? "재도전" : "다시", _ghostBtn))
             {
                 StartStage(_stageIdx);
             }
-            string nextLabel = hasNext ? "다음 스테이지 ▶" : "로비로";
-            if (GUI.Button(new Rect(x0 + btnW + gap, y, btnW, btnH), nextLabel, _button))
+
+            // 우 = primary (다음 ▶) — 성공 시 강조
+            GUI.backgroundColor = _stageCleared ? new Color(0.62f, 0.31f, 0.87f, 1f) : new Color(0.38f, 0.40f, 0.48f, 1f);
+            string nextLabel = hasNext ? "다음 ▶" : "로비로";
+            if (GUI.Button(new Rect(x0 + btnW + gap, by, btnW, btnH), nextLabel, _primaryBtn))
             {
                 if (hasNext) StartStage(_stageIdx + 1);
                 else ExitToLobby();
             }
+            GUI.backgroundColor = Color.white;
+            GUI.color = Color.white;
+        }
+
+        private static float EaseOutQuart(float t)
+        {
+            return 1f - Mathf.Pow(1f - t, 4f);
         }
     }
 }
