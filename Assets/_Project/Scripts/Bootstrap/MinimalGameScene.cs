@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Alchemist.Domain.Colors;
@@ -251,31 +252,138 @@ namespace Alchemist.Bootstrap
             _blocks[tr, tc].transform.localScale = Vector3.one * (CellSize * 1.35f);
 
             _moves++;
-            int scored = 0;
+            StartCoroutine(ResolveCascadeCoroutine(mixed));
+        }
+
+        /// <summary>
+        /// 폭발 애니메이션(확대+페이드) 후 중력/리필을 단계별 지연으로 실행.
+        /// 각 Step 사이 지연으로 "짧은 깜빡임" 이 아닌 체감 가능한 Juice 제공.
+        /// </summary>
+        private IEnumerator ResolveCascadeCoroutine(ColorId mixedColor)
+        {
+            _inputLocked = true;
+            int totalScored = 0;
             int depth = 0;
-            while (ResolveMatches(ref scored))
+
+            while (true)
             {
+                var hits = DetectMatches();
+                if (hits.Count == 0) break;
                 depth++;
+
+                // 1) 폭발 애니: 매치된 셀을 1.5배로 확대하며 알파 페이드.
+                yield return StartCoroutine(ExplodeAnim(hits));
+
+                // 2) 셀 클리어 + 점수 적립
+                foreach (var rc in hits)
+                {
+                    var col = _colorGrid[rc.r, rc.c];
+                    totalScored += ScoreFor(col);
+                    _colorGrid[rc.r, rc.c] = ColorId.None;
+                    _blocks[rc.r, rc.c].color = ColorToUnity(ColorId.None);
+                    var sr = _blocks[rc.r, rc.c];
+                    var col2 = sr.color; col2.a = 1f; sr.color = col2;
+                    sr.transform.localScale = Vector3.one * CellSize;
+                }
+                yield return new WaitForSeconds(0.08f);
+
+                // 3) 중력
                 ApplyGravity();
+                yield return new WaitForSeconds(0.22f);
+
+                // 4) 리필
                 Refill();
+                yield return new WaitForSeconds(0.26f);
+
                 if (depth >= 10) break;
             }
 
             if (depth > _maxChainDepth) _maxChainDepth = depth;
-            if (scored > 0)
+            if (totalScored > 0)
             {
-                _score += scored + (depth - 1) * 50;
-                ShowToast(depth > 1 ? ("연쇄 " + depth + "!") : "폭발!");
+                _score += totalScored + Mathf.Max(0, (depth - 1)) * 50;
+                ShowToast(depth > 1 ? ("연쇄 " + depth + "!  +" + totalScored) : ("폭발! +" + totalScored));
             }
             else
             {
-                ShowToast(ColorLabel(mixed));
+                ShowToast(ColorLabel(mixedColor));
+            }
+
+            _inputLocked = false;
+        }
+
+        private struct RC { public int r, c; public RC(int a, int b) { r = a; c = b; } }
+
+        private List<RC> DetectMatches()
+        {
+            var hits = new List<RC>();
+            bool[,] hit = new bool[Rows, Cols];
+
+            for (int r = 0; r < Rows; r++)
+            {
+                int runStart = 0;
+                for (int c = 1; c <= Cols; c++)
+                {
+                    bool endRun = c == Cols || _colorGrid[r, c] != _colorGrid[r, runStart];
+                    if (endRun)
+                    {
+                        int len = c - runStart;
+                        ColorId col = _colorGrid[r, runStart];
+                        if (len >= 3 && IsMatchable(col))
+                        {
+                            for (int k = runStart; k < c; k++) hit[r, k] = true;
+                        }
+                        runStart = c;
+                    }
+                }
+            }
+            for (int c = 0; c < Cols; c++)
+            {
+                int runStart = 0;
+                for (int r = 1; r <= Rows; r++)
+                {
+                    bool endRun = r == Rows || _colorGrid[r, c] != _colorGrid[runStart, c];
+                    if (endRun)
+                    {
+                        int len = r - runStart;
+                        ColorId col = _colorGrid[runStart, c];
+                        if (len >= 3 && IsMatchable(col))
+                        {
+                            for (int k = runStart; k < r; k++) hit[k, c] = true;
+                        }
+                        runStart = r;
+                    }
+                }
+            }
+
+            for (int r = 0; r < Rows; r++)
+            for (int c = 0; c < Cols; c++)
+                if (hit[r, c]) hits.Add(new RC(r, c));
+            return hits;
+        }
+
+        private IEnumerator ExplodeAnim(List<RC> cells)
+        {
+            const float dur = 0.35f;
+            float t = 0f;
+            while (t < dur)
+            {
+                float u = t / dur;
+                float scale = Mathf.Lerp(CellSize, CellSize * 1.55f, u);
+                float alpha = Mathf.Lerp(1f, 0f, u * u);
+                for (int i = 0; i < cells.Count; i++)
+                {
+                    var rc = cells[i];
+                    var sr = _blocks[rc.r, rc.c];
+                    sr.transform.localScale = Vector3.one * scale;
+                    var col = sr.color; col.a = alpha; sr.color = col;
+                }
+                t += Time.deltaTime;
+                yield return null;
             }
         }
 
-        /// <summary>
-        /// 2차/3차 색이 가로/세로 3연결된 셀 집합을 찾아 None으로 비움. 폭발 점수 누적.
-        /// </summary>
+        /// <summary>Legacy (직접 ResolveMatches 대신 DetectMatches + Coroutine 로 교체됨).</summary>
         private bool ResolveMatches(ref int scored)
         {
             bool[,] hit = new bool[Rows, Cols];
@@ -363,6 +471,9 @@ namespace Alchemist.Bootstrap
                     {
                         _colorGrid[writeRow, c] = _colorGrid[r, c];
                         _blocks[writeRow, c].color = ColorToUnity(_colorGrid[writeRow, c]);
+                        // 낙하 애니메이션: writeRow 블록을 출발(r 위치)에 순간이동시키고
+                        // UpdateScaleDecay 의 lerp 가 자신의 _basePos[writeRow] 로 끌어내리도록 한다.
+                        _blocks[writeRow, c].transform.position = _basePos[r, c];
                         _colorGrid[r, c] = ColorId.None;
                         _blocks[r, c].color = ColorToUnity(ColorId.None);
                     }
@@ -380,6 +491,9 @@ namespace Alchemist.Bootstrap
                 var nb = _spawner.SpawnRandom(r, c);
                 _colorGrid[r, c] = nb.Color;
                 _blocks[r, c].color = ColorToUnity(nb.Color);
+                // 상단 바깥에서 등장하는 낙하 효과: 보드 상단 위쪽 r+1칸 거리에서 시작.
+                float spawnY = _basePos[0, c].y + (CellSize + Gap) * (r + 1);
+                _blocks[r, c].transform.position = new Vector3(_basePos[r, c].x, spawnY, 0f);
                 _blocks[r, c].transform.localScale = Vector3.one * (CellSize * 0.9f);
             }
         }
