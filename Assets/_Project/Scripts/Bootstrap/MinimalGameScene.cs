@@ -7,11 +7,9 @@ using Alchemist.Domain.Chain;
 namespace Alchemist.Bootstrap
 {
     /// <summary>
-    /// TMP/Prefab 없이 즉시 플레이어블한 최소 색-조합 매치-3 보드.
-    /// - 6×7 보드 프로시저얼 생성
-    /// - Drag-to-Mix: 블록을 인접 셀에 드롭하면 ColorMixer.Mix 결과로 합성
-    /// - 2차+ 색 3연결 시 폭발 + 중력 + 리필
-    /// - 점수/턴 수 OnGUI 표시
+    /// 완전한 1-세션 루프: 로비 → 스테이지 선택 → 플레이 → 결과 → 다음/재도전.
+    /// 5개 스테이지, 프로시저얼 사운드, PlayerPrefs 별점 영속화.
+    /// TMP/에셋 없이 프로시저얼로만 구성.
     /// </summary>
     public sealed class MinimalGameScene : MonoBehaviour
     {
@@ -19,55 +17,76 @@ namespace Alchemist.Bootstrap
         private const int Cols = 6;
         private const float CellSize = 0.9f;
         private const float Gap = 0.06f;
-        private const int Seed = 42;
 
+        // --------------- Stage catalog ---------------
+        private sealed class StageConfig
+        {
+            public string Id, Title;
+            public ColorId GoalColor;
+            public int GoalCount, MoveLimit, Seed;
+            public StageConfig(string i, string t, ColorId g, int c, int m, int s)
+            { Id = i; Title = t; GoalColor = g; GoalCount = c; MoveLimit = m; Seed = s; }
+        }
+        private static readonly StageConfig[] Stages = new[]
+        {
+            new StageConfig("s1", "1. 노을의 주홍", ColorId.Orange, 3, 10, 42),
+            new StageConfig("s2", "2. 여름의 초록", ColorId.Green,  4, 12, 100),
+            new StageConfig("s3", "3. 달빛 보라",  ColorId.Purple, 5, 12, 200),
+            new StageConfig("s4", "4. 깊은 숲",   ColorId.Green,  6, 14, 300),
+            new StageConfig("s5", "5. 무지개 끝", ColorId.White,  3, 16, 500),
+        };
+
+        // --------------- Screen state ---------------
+        private enum ScreenState { Lobby, Playing, Result }
+        private ScreenState _screen = ScreenState.Lobby;
+        private int _stageIdx;
+        private StageConfig _stage;
+
+        // --------------- Board state ---------------
         private SpriteRenderer[,] _blocks;
         private ColorId[,] _colorGrid;
         private Vector3[,] _basePos;
         private Sprite _squareSprite;
         private DeterministicBlockSpawner _spawner;
 
-        // Drag state
+        // --------------- Drag ---------------
         private int _dragR = -1, _dragC = -1;
-        private Vector3 _dragOrigWorld;
         private bool _inputLocked;
 
-        // Gameplay state
-        private int _score;
-        private int _moves;
-        private int _maxChainDepth;
+        // --------------- Play state ---------------
+        private int _score, _moves, _maxChainDepth;
+        private int _goalProgress;
+        private bool _stageCleared;
+        private int _stars;
         private string _toast = "";
         private float _toastUntil;
 
-        // Stage prompt — "Purple 5개 만들기, 12턴 이내"
-        private const ColorId GoalColor = ColorId.Purple;
-        private const int GoalCount = 5;
-        private const int MoveLimit = 12;
-        private int _goalProgress;
-        private bool _stageEnded;
-        private bool _stageCleared;
-        private int _stars;
+        // --------------- Audio ---------------
+        private AudioSource _audio;
+        private AudioClip _sfxMix, _sfxExplode, _sfxClear, _sfxFail;
 
-        private Texture2D _panelBgTex;
-        private Texture2D _barBgTex;
-        private Texture2D _barFillTex;
-        private Texture2D _overlayTex;
-        private GUIStyle _title, _hud, _body, _goalLabel, _overlayTitle, _overlayBody, _button;
+        // --------------- UI ---------------
+        private Texture2D _panelBg, _barBg, _barFill, _overlayTex, _stageBtnBg;
+        private GUIStyle _title, _hud, _body, _goalLabel, _overlayTitle, _overlayBody, _button, _stageBtn;
 
+        // --------------- Lifecycle ---------------
         private void Start()
         {
             Application.targetFrameRate = 60;
             _squareSprite = BuildSquareSprite();
-            _spawner = new DeterministicBlockSpawner(Seed);
             _blocks = new SpriteRenderer[Rows, Cols];
             _colorGrid = new ColorId[Rows, Cols];
             _basePos = new Vector3[Rows, Cols];
-            BuildGrid();
+            BuildGrid(seed: Stages[0].Seed);
             FitCameraToBoard();
+            SetupAudio();
+            SetBoardVisible(false); // 로비에선 숨김
         }
 
-        private void BuildGrid()
+        // --------------- Board construction ---------------
+        private void BuildGrid(int seed)
         {
+            _spawner = new DeterministicBlockSpawner(seed);
             float totalW = Cols * (CellSize + Gap) - Gap;
             float totalH = Rows * (CellSize + Gap) - Gap;
             float originX = -totalW / 2f + CellSize / 2f;
@@ -79,21 +98,30 @@ namespace Alchemist.Bootstrap
                 {
                     var block = _spawner.SpawnRandom(r, c);
                     _colorGrid[r, c] = block.Color;
-
-                    var go = new GameObject("Block_" + r + "_" + c);
-                    go.transform.parent = transform;
-                    var pos = new Vector3(
-                        originX + c * (CellSize + Gap),
-                        originY - r * (CellSize + Gap),
-                        0f);
-                    go.transform.position = pos;
-                    go.transform.localScale = Vector3.one * CellSize;
+                    var pos = new Vector3(originX + c * (CellSize + Gap), originY - r * (CellSize + Gap), 0f);
                     _basePos[r, c] = pos;
-                    var sr = go.AddComponent<SpriteRenderer>();
-                    sr.sprite = _squareSprite;
-                    sr.color = ColorToUnity(block.Color);
-                    _blocks[r, c] = sr;
+                    if (_blocks[r, c] == null)
+                    {
+                        var go = new GameObject("Block_" + r + "_" + c);
+                        go.transform.parent = transform;
+                        var sr = go.AddComponent<SpriteRenderer>();
+                        sr.sprite = _squareSprite;
+                        _blocks[r, c] = sr;
+                    }
+                    _blocks[r, c].transform.position = pos;
+                    _blocks[r, c].transform.localScale = Vector3.one * CellSize;
+                    _blocks[r, c].color = ColorToUnity(block.Color);
+                    var col = _blocks[r, c].color; col.a = 1f; _blocks[r, c].color = col;
                 }
+            }
+        }
+
+        private void SetBoardVisible(bool on)
+        {
+            for (int r = 0; r < Rows; r++)
+            for (int c = 0; c < Cols; c++)
+            {
+                if (_blocks[r, c] != null) _blocks[r, c].enabled = on;
             }
         }
 
@@ -111,78 +139,43 @@ namespace Alchemist.Bootstrap
             cam.transform.position = new Vector3(0f, 0f, -10f);
         }
 
-        private static Color ColorToUnity(ColorId c)
+        // --------------- Stage management ---------------
+        private void StartStage(int idx)
         {
-            switch (c)
-            {
-                case ColorId.Red:    return new Color(0.90f, 0.22f, 0.27f);
-                case ColorId.Yellow: return new Color(0.97f, 0.83f, 0.30f);
-                case ColorId.Blue:   return new Color(0.28f, 0.58f, 0.94f);
-                case ColorId.Orange: return new Color(0.96f, 0.64f, 0.38f);
-                case ColorId.Green:  return new Color(0.32f, 0.72f, 0.53f);
-                case ColorId.Purple: return new Color(0.62f, 0.31f, 0.87f);
-                case ColorId.White:  return new Color(0.96f, 0.96f, 0.94f);
-                case ColorId.Black:  return new Color(0.10f, 0.10f, 0.12f);
-                case ColorId.Gray:   return new Color(0.42f, 0.44f, 0.48f);
-                default:             return new Color(0.18f, 0.18f, 0.22f);
-            }
+            _stageIdx = Mathf.Clamp(idx, 0, Stages.Length - 1);
+            _stage = Stages[_stageIdx];
+            _score = _moves = _maxChainDepth = _goalProgress = 0;
+            _stageCleared = false; _stars = 0;
+            _toast = ""; _toastUntil = 0f;
+            _inputLocked = false;
+            BuildGrid(_stage.Seed);
+            SetBoardVisible(true);
+            _screen = ScreenState.Playing;
         }
 
-        /// <summary>
-        /// 물감 한 방울 느낌의 둥근 사각형 스프라이트(프로시저얼).
-        /// SDF 기반 rounded-square + 수직 그라디언트 + 좌상단 하이라이트 스팟.
-        /// </summary>
-        private static Sprite BuildSquareSprite()
+        private void ExitToLobby()
         {
-            const int sz = 128;
-            var tex = new Texture2D(sz, sz, TextureFormat.RGBA32, false);
-            var px = new Color32[sz * sz];
-            float cx = sz / 2f, cy = sz / 2f;
-            float innerHalf = sz * 0.40f;
-            float cornerR = sz * 0.14f;
-            float aaPx = 2f;
-
-            for (int y = 0; y < sz; y++)
-            {
-                for (int x = 0; x < sz; x++)
-                {
-                    float rx = Mathf.Abs(x - cx) - innerHalf;
-                    float ry = Mathf.Abs(y - cy) - innerHalf;
-                    float dxc = Mathf.Max(0f, rx);
-                    float dyc = Mathf.Max(0f, ry);
-                    float cornerDist = Mathf.Sqrt(dxc * dxc + dyc * dyc);
-                    float sdf = cornerDist - cornerR;
-                    float alpha = Mathf.Clamp01(-sdf / aaPx + 0.5f);
-                    if (alpha <= 0f)
-                    {
-                        px[y * sz + x] = new Color32(0, 0, 0, 0);
-                        continue;
-                    }
-                    float topBias = 1f - (y / (float)sz);
-                    float bright = Mathf.Lerp(0.70f, 1.05f, topBias);
-                    float hdx = (x - cx + sz * 0.18f) / (sz * 0.20f);
-                    float hdy = (y - cy - sz * 0.14f) / (sz * 0.14f);
-                    float hDist = hdx * hdx + hdy * hdy;
-                    float highlight = Mathf.Clamp01(1f - hDist) * 0.35f;
-                    bright = Mathf.Clamp01(bright + highlight);
-                    byte v = (byte)(bright * 255f);
-                    byte a = (byte)(alpha * 255f);
-                    px[y * sz + x] = new Color32(v, v, v, a);
-                }
-            }
-
-            tex.SetPixels32(px);
-            tex.filterMode = FilterMode.Bilinear;
-            tex.wrapMode = TextureWrapMode.Clamp;
-            tex.Apply();
-            return Sprite.Create(tex, new Rect(0, 0, sz, sz), new Vector2(0.5f, 0.5f), sz);
+            SetBoardVisible(false);
+            _screen = ScreenState.Lobby;
         }
 
+        private static int GetStoredStars(string stageId) => PlayerPrefs.GetInt("stars_" + stageId, 0);
+        private static void SaveStars(string stageId, int stars)
+        {
+            int prev = GetStoredStars(stageId);
+            if (stars > prev) { PlayerPrefs.SetInt("stars_" + stageId, stars); PlayerPrefs.Save(); }
+        }
+        private bool IsStageUnlocked(int idx)
+        {
+            if (idx == 0) return true;
+            return GetStoredStars(Stages[idx - 1].Id) > 0;
+        }
+
+        // --------------- Input ---------------
         private void Update()
         {
             UpdateScaleDecay();
-
-            if (_inputLocked) return;
+            if (_screen != ScreenState.Playing || _inputLocked) return;
 
             bool began = false, moved = false, ended = false;
             Vector2 screenPos = default;
@@ -208,6 +201,9 @@ namespace Alchemist.Bootstrap
             Vector3 world = cam.ScreenToWorldPoint(new Vector3(screenPos.x, screenPos.y, -cam.transform.position.z));
             world.z = 0f;
 
+            // 상단 HUD 영역 터치는 블록 입력으로 먹지 않도록 차단
+            if (screenPos.y > Screen.height - 180) return;
+
             if (began) OnDragBegin(world);
             else if (moved) OnDragMove(world);
             else if (ended) OnDragEnd(world);
@@ -217,19 +213,15 @@ namespace Alchemist.Bootstrap
         {
             if (!FindCell(world, out int r, out int c)) return;
             if (_colorGrid[r, c] == ColorId.None) return;
-            _dragR = r;
-            _dragC = c;
-            _dragOrigWorld = _basePos[r, c];
+            _dragR = r; _dragC = c;
             _blocks[r, c].sortingOrder = 10;
         }
-
         private void OnDragMove(Vector3 world)
         {
             if (_dragR < 0) return;
             _blocks[_dragR, _dragC].transform.position = new Vector3(world.x, world.y, 0f);
             _blocks[_dragR, _dragC].transform.localScale = Vector3.one * (CellSize * 1.15f);
         }
-
         private void OnDragEnd(Vector3 world)
         {
             if (_dragR < 0) return;
@@ -237,16 +229,8 @@ namespace Alchemist.Bootstrap
             _dragR = _dragC = -1;
             _blocks[sr, sc].sortingOrder = 0;
 
-            if (!FindCell(world, out int tr, out int tc) || (tr == sr && tc == sc))
-            {
-                SnapBack(sr, sc);
-                return;
-            }
-            if (!IsAdjacent(sr, sc, tr, tc))
-            {
-                SnapBack(sr, sc);
-                return;
-            }
+            if (!FindCell(world, out int tr, out int tc) || (tr == sr && tc == sc)) { SnapBack(sr, sc); return; }
+            if (!IsAdjacent(sr, sc, tr, tc)) { SnapBack(sr, sc); return; }
             SnapBack(sr, sc);
             TryMix(sr, sc, tr, tc);
         }
@@ -256,11 +240,8 @@ namespace Alchemist.Bootstrap
             _blocks[r, c].transform.position = _basePos[r, c];
             _blocks[r, c].transform.localScale = Vector3.one * CellSize;
         }
-
-        private bool IsAdjacent(int r1, int c1, int r2, int c2)
-        {
-            return (Mathf.Abs(r1 - r2) == 1 && c1 == c2) || (Mathf.Abs(c1 - c2) == 1 && r1 == r2);
-        }
+        private static bool IsAdjacent(int r1, int c1, int r2, int c2)
+            => (Mathf.Abs(r1 - r2) == 1 && c1 == c2) || (Mathf.Abs(c1 - c2) == 1 && r1 == r2);
 
         private bool FindCell(Vector3 world, out int row, out int col)
         {
@@ -275,21 +256,14 @@ namespace Alchemist.Bootstrap
             return row >= 0;
         }
 
+        // --------------- Gameplay ---------------
         private void TryMix(int sr, int sc, int tr, int tc)
         {
             ColorId src = _colorGrid[sr, sc];
             ColorId dst = _colorGrid[tr, tc];
-            if (src == ColorId.None || dst == ColorId.None)
-            {
-                ShowToast("빈 칸은 섞을 수 없음");
-                return;
-            }
+            if (src == ColorId.None || dst == ColorId.None) { ShowToast("빈 칸"); return; }
             ColorId mixed = ColorMixer.Mix(src, dst);
-            if (mixed == ColorId.None)
-            {
-                ShowToast("혼합 불가");
-                return;
-            }
+            if (mixed == ColorId.None) { ShowToast("혼합 불가"); return; }
 
             _colorGrid[tr, tc] = mixed;
             _colorGrid[sr, sc] = ColorId.None;
@@ -297,61 +271,43 @@ namespace Alchemist.Bootstrap
             _blocks[sr, sc].color = ColorToUnity(ColorId.None);
             _blocks[tr, tc].transform.localScale = Vector3.one * (CellSize * 1.35f);
 
-            if (mixed == GoalColor) _goalProgress++;
-
+            if (mixed == _stage.GoalColor) _goalProgress++;
             _moves++;
             TriggerMixFeedback(_basePos[tr, tc], mixed);
             StartCoroutine(ResolveCascadeCoroutine(mixed));
         }
 
-        /// <summary>
-        /// 폭발 애니메이션(확대+페이드) 후 중력/리필을 단계별 지연으로 실행.
-        /// 각 Step 사이 지연으로 "짧은 깜빡임" 이 아닌 체감 가능한 Juice 제공.
-        /// </summary>
         private IEnumerator ResolveCascadeCoroutine(ColorId mixedColor)
         {
             _inputLocked = true;
-            int totalScored = 0;
-            int depth = 0;
+            int totalScored = 0, depth = 0;
 
-            // 믹스로 생긴 원본 셀의 None 은 매치 여부와 무관하게 낙하/리필로 채움.
-            // WHY: 유저 피드백 '빈칸은 낙하가 안됨. 폭발해야 채워짐' — 믹스만 해도 빈칸이 처리되도록.
             yield return new WaitForSeconds(0.10f);
             ApplyGravity();
             yield return new WaitForSeconds(0.22f);
             Refill();
-            yield return new WaitForSeconds(0.26f);
+            yield return new WaitForSeconds(0.22f);
 
             while (true)
             {
                 var hits = DetectMatches();
                 if (hits.Count == 0) break;
                 depth++;
-
-                // 1) 폭발 애니: 매치된 셀을 1.5배로 확대하며 알파 페이드.
                 yield return StartCoroutine(ExplodeAnim(hits));
-
-                // 2) 셀 클리어 + 점수 적립
                 foreach (var rc in hits)
                 {
                     var col = _colorGrid[rc.r, rc.c];
                     totalScored += ScoreFor(col);
                     _colorGrid[rc.r, rc.c] = ColorId.None;
                     _blocks[rc.r, rc.c].color = ColorToUnity(ColorId.None);
-                    var sr = _blocks[rc.r, rc.c];
-                    var col2 = sr.color; col2.a = 1f; sr.color = col2;
-                    sr.transform.localScale = Vector3.one * CellSize;
+                    var c2 = _blocks[rc.r, rc.c].color; c2.a = 1f; _blocks[rc.r, rc.c].color = c2;
+                    _blocks[rc.r, rc.c].transform.localScale = Vector3.one * CellSize;
                 }
                 yield return new WaitForSeconds(0.08f);
-
-                // 3) 중력
                 ApplyGravity();
-                yield return new WaitForSeconds(0.22f);
-
-                // 4) 리필
+                yield return new WaitForSeconds(0.20f);
                 Refill();
-                yield return new WaitForSeconds(0.26f);
-
+                yield return new WaitForSeconds(0.22f);
                 if (depth >= 10) break;
             }
 
@@ -372,187 +328,78 @@ namespace Alchemist.Bootstrap
 
         private void EvaluateStageOutcome()
         {
-            if (_stageEnded) return;
-            if (_goalProgress >= GoalCount)
+            if (_screen != ScreenState.Playing) return;
+            if (_goalProgress >= _stage.GoalCount)
             {
-                _stageEnded = true;
                 _stageCleared = true;
-                _inputLocked = true;
-                // 별점: 여유 있을수록 ★ 많음
-                int remaining = MoveLimit - _moves;
-                if (remaining >= MoveLimit / 2) _stars = 3;
+                int remaining = _stage.MoveLimit - _moves;
+                if (remaining >= _stage.MoveLimit / 2) _stars = 3;
                 else if (remaining >= 2) _stars = 2;
                 else _stars = 1;
                 _score += 200 * _stars;
+                SaveStars(_stage.Id, _stars);
                 ShowToast("STAGE CLEAR! +" + (200 * _stars));
-            }
-            else if (_moves >= MoveLimit)
-            {
-                _stageEnded = true;
-                _stageCleared = false;
+                PlaySfx(_sfxClear);
                 _inputLocked = true;
+                StartCoroutine(EndStageAfter(0.8f));
+            }
+            else if (_moves >= _stage.MoveLimit)
+            {
+                _stageCleared = false;
                 ShowToast("STAGE FAILED");
+                PlaySfx(_sfxFail);
+                _inputLocked = true;
+                StartCoroutine(EndStageAfter(0.6f));
             }
         }
-
-        private void ResetStage()
+        private IEnumerator EndStageAfter(float delay)
         {
-            _score = 0;
-            _moves = 0;
-            _maxChainDepth = 0;
-            _goalProgress = 0;
-            _stageEnded = false;
-            _stageCleared = false;
-            _stars = 0;
-            _toast = "";
-            _toastUntil = 0f;
-            _spawner = new DeterministicBlockSpawner(Seed);
-
-            for (int r = 0; r < Rows; r++)
-            for (int c = 0; c < Cols; c++)
-            {
-                var block = _spawner.SpawnRandom(r, c);
-                _colorGrid[r, c] = block.Color;
-                _blocks[r, c].color = ColorToUnity(block.Color);
-                _blocks[r, c].transform.position = _basePos[r, c];
-                _blocks[r, c].transform.localScale = Vector3.one * CellSize;
-                var col = _blocks[r, c].color; col.a = 1f; _blocks[r, c].color = col;
-            }
-            _inputLocked = false;
+            yield return new WaitForSeconds(delay);
+            _screen = ScreenState.Result;
         }
 
         private struct RC { public int r, c; public RC(int a, int b) { r = a; c = b; } }
-
         private List<RC> DetectMatches()
         {
             var hits = new List<RC>();
             bool[,] hit = new bool[Rows, Cols];
-
             for (int r = 0; r < Rows; r++)
             {
-                int runStart = 0;
+                int s = 0;
                 for (int c = 1; c <= Cols; c++)
                 {
-                    bool endRun = c == Cols || _colorGrid[r, c] != _colorGrid[r, runStart];
-                    if (endRun)
-                    {
-                        int len = c - runStart;
-                        ColorId col = _colorGrid[r, runStart];
-                        if (len >= 3 && IsMatchable(col))
-                        {
-                            for (int k = runStart; k < c; k++) hit[r, k] = true;
-                        }
-                        runStart = c;
+                    bool end = c == Cols || _colorGrid[r, c] != _colorGrid[r, s];
+                    if (end) {
+                        int len = c - s; ColorId col = _colorGrid[r, s];
+                        if (len >= 3 && IsMatchable(col)) for (int k = s; k < c; k++) hit[r, k] = true;
+                        s = c;
                     }
                 }
             }
             for (int c = 0; c < Cols; c++)
             {
-                int runStart = 0;
+                int s = 0;
                 for (int r = 1; r <= Rows; r++)
                 {
-                    bool endRun = r == Rows || _colorGrid[r, c] != _colorGrid[runStart, c];
-                    if (endRun)
-                    {
-                        int len = r - runStart;
-                        ColorId col = _colorGrid[runStart, c];
-                        if (len >= 3 && IsMatchable(col))
-                        {
-                            for (int k = runStart; k < r; k++) hit[k, c] = true;
-                        }
-                        runStart = r;
+                    bool end = r == Rows || _colorGrid[r, c] != _colorGrid[s, c];
+                    if (end) {
+                        int len = r - s; ColorId col = _colorGrid[s, c];
+                        if (len >= 3 && IsMatchable(col)) for (int k = s; k < r; k++) hit[k, c] = true;
+                        s = r;
                     }
                 }
             }
-
             for (int r = 0; r < Rows; r++)
-            for (int c = 0; c < Cols; c++)
-                if (hit[r, c]) hits.Add(new RC(r, c));
+            for (int c = 0; c < Cols; c++) if (hit[r, c]) hits.Add(new RC(r, c));
             return hits;
         }
-
-        private void TriggerMixFeedback(Vector3 worldPos, ColorId mixed)
+        private static bool IsMatchable(ColorId c) => c == ColorId.Orange || c == ColorId.Green || c == ColorId.Purple || c == ColorId.White;
+        private static int ScoreFor(ColorId c)
         {
-#if UNITY_IOS || UNITY_ANDROID
-            try { Handheld.Vibrate(); } catch { /* 일부 기기 미지원 */ }
-#endif
-            StartCoroutine(ScreenShake(0.12f, 0.05f));
-            SpawnPaintSplash(worldPos, ColorToUnity(mixed), 8, 0.35f);
-        }
-
-        private void TriggerExplosionFeedback(List<RC> cells)
-        {
-#if UNITY_IOS || UNITY_ANDROID
-            try { Handheld.Vibrate(); } catch { }
-#endif
-            float mag = Mathf.Min(0.22f, 0.05f + cells.Count * 0.012f);
-            StartCoroutine(ScreenShake(0.30f, mag));
-            for (int i = 0; i < cells.Count; i++)
-            {
-                var rc = cells[i];
-                SpawnPaintSplash(_basePos[rc.r, rc.c], _blocks[rc.r, rc.c].color, 14, 0.5f);
-            }
-        }
-
-        private IEnumerator ScreenShake(float duration, float magnitude)
-        {
-            var cam = Camera.main;
-            if (cam == null || duration <= 0f) yield break;
-            Vector3 orig = cam.transform.position;
-            float t = 0f;
-            while (t < duration)
-            {
-                float decay = 1f - (t / duration);
-                float ox = (Random.value - 0.5f) * 2f * magnitude * decay;
-                float oy = (Random.value - 0.5f) * 2f * magnitude * decay;
-                cam.transform.position = new Vector3(orig.x + ox, orig.y + oy, orig.z);
-                t += Time.deltaTime;
-                yield return null;
-            }
-            cam.transform.position = orig;
-        }
-
-        private void SpawnPaintSplash(Vector3 origin, Color color, int count, float lifetime)
-        {
-            for (int i = 0; i < count; i++)
-            {
-                var go = new GameObject("Splash");
-                go.transform.position = origin;
-                float s = Random.Range(0.18f, 0.42f);
-                go.transform.localScale = Vector3.one * s;
-                var sr = go.AddComponent<SpriteRenderer>();
-                sr.sprite = _squareSprite;
-                sr.color = color;
-                sr.sortingOrder = 50;
-                float ang = Random.Range(0f, Mathf.PI * 2f);
-                float spd = Random.Range(1.2f, 3.6f);
-                var vel = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * spd;
-                StartCoroutine(SplashMotion(go, vel, lifetime));
-            }
-        }
-
-        private IEnumerator SplashMotion(GameObject go, Vector2 initialVel, float lifetime)
-        {
-            if (go == null) yield break;
-            var tr = go.transform;
-            var sr = go.GetComponent<SpriteRenderer>();
-            Vector2 vel = initialVel;
-            float t = 0f;
-            Vector3 pos = tr.position;
-            while (t < lifetime && go != null)
-            {
-                float u = t / lifetime;
-                vel *= 0.92f;
-                pos += (Vector3)(vel * Time.deltaTime);
-                tr.position = pos;
-                tr.localScale = Vector3.one * Mathf.Lerp(tr.localScale.x, 0.02f, u * 0.6f);
-                var c = sr.color;
-                c.a = 1f - u;
-                sr.color = c;
-                t += Time.deltaTime;
-                yield return null;
-            }
-            if (go != null) Destroy(go);
+            if (c == ColorId.White) return 100;
+            if (c == ColorId.Orange || c == ColorId.Green || c == ColorId.Purple) return 30;
+            if (c == ColorId.Black) return -20;
+            return 10;
         }
 
         private IEnumerator ExplodeAnim(List<RC> cells)
@@ -568,89 +415,11 @@ namespace Alchemist.Bootstrap
                 for (int i = 0; i < cells.Count; i++)
                 {
                     var rc = cells[i];
-                    var sr = _blocks[rc.r, rc.c];
-                    sr.transform.localScale = Vector3.one * scale;
-                    var col = sr.color; col.a = alpha; sr.color = col;
+                    _blocks[rc.r, rc.c].transform.localScale = Vector3.one * scale;
+                    var col = _blocks[rc.r, rc.c].color; col.a = alpha; _blocks[rc.r, rc.c].color = col;
                 }
-                t += Time.deltaTime;
-                yield return null;
+                t += Time.deltaTime; yield return null;
             }
-        }
-
-        /// <summary>Legacy (직접 ResolveMatches 대신 DetectMatches + Coroutine 로 교체됨).</summary>
-        private bool ResolveMatches(ref int scored)
-        {
-            bool[,] hit = new bool[Rows, Cols];
-            bool any = false;
-
-            // horizontal
-            for (int r = 0; r < Rows; r++)
-            {
-                int runStart = 0;
-                for (int c = 1; c <= Cols; c++)
-                {
-                    bool endRun = c == Cols || _colorGrid[r, c] != _colorGrid[r, runStart];
-                    if (endRun)
-                    {
-                        int len = c - runStart;
-                        ColorId col = _colorGrid[r, runStart];
-                        if (len >= 3 && IsMatchable(col))
-                        {
-                            for (int k = runStart; k < c; k++) hit[r, k] = true;
-                            any = true;
-                        }
-                        runStart = c;
-                    }
-                }
-            }
-            // vertical
-            for (int c = 0; c < Cols; c++)
-            {
-                int runStart = 0;
-                for (int r = 1; r <= Rows; r++)
-                {
-                    bool endRun = r == Rows || _colorGrid[r, c] != _colorGrid[runStart, c];
-                    if (endRun)
-                    {
-                        int len = r - runStart;
-                        ColorId col = _colorGrid[runStart, c];
-                        if (len >= 3 && IsMatchable(col))
-                        {
-                            for (int k = runStart; k < r; k++) hit[k, c] = true;
-                            any = true;
-                        }
-                        runStart = r;
-                    }
-                }
-            }
-
-            if (!any) return false;
-
-            for (int r = 0; r < Rows; r++)
-            for (int c = 0; c < Cols; c++)
-            {
-                if (!hit[r, c]) continue;
-                ColorId col = _colorGrid[r, c];
-                scored += ScoreFor(col);
-                _colorGrid[r, c] = ColorId.None;
-                _blocks[r, c].color = ColorToUnity(ColorId.None);
-                _blocks[r, c].transform.localScale = Vector3.one * (CellSize * 1.3f);
-            }
-            return true;
-        }
-
-        private static bool IsMatchable(ColorId c)
-        {
-            // 2차 이상만 매치
-            return c == ColorId.Orange || c == ColorId.Green || c == ColorId.Purple || c == ColorId.White;
-        }
-
-        private static int ScoreFor(ColorId c)
-        {
-            if (c == ColorId.White) return 100;
-            if (c == ColorId.Orange || c == ColorId.Green || c == ColorId.Purple) return 30;
-            if (c == ColorId.Black) return -20;
-            return 10;
         }
 
         private void ApplyGravity()
@@ -665,8 +434,6 @@ namespace Alchemist.Bootstrap
                     {
                         _colorGrid[writeRow, c] = _colorGrid[r, c];
                         _blocks[writeRow, c].color = ColorToUnity(_colorGrid[writeRow, c]);
-                        // 낙하 애니메이션: writeRow 블록을 출발(r 위치)에 순간이동시키고
-                        // UpdateScaleDecay 의 lerp 가 자신의 _basePos[writeRow] 로 끌어내리도록 한다.
                         _blocks[writeRow, c].transform.position = _basePos[r, c];
                         _colorGrid[r, c] = ColorId.None;
                         _blocks[r, c].color = ColorToUnity(ColorId.None);
@@ -675,7 +442,6 @@ namespace Alchemist.Bootstrap
                 }
             }
         }
-
         private void Refill()
         {
             for (int r = 0; r < Rows; r++)
@@ -685,7 +451,6 @@ namespace Alchemist.Bootstrap
                 var nb = _spawner.SpawnRandom(r, c);
                 _colorGrid[r, c] = nb.Color;
                 _blocks[r, c].color = ColorToUnity(nb.Color);
-                // 상단 바깥에서 등장하는 낙하 효과: 보드 상단 위쪽 r+1칸 거리에서 시작.
                 float spawnY = _basePos[0, c].y + (CellSize + Gap) * (r + 1);
                 _blocks[r, c].transform.position = new Vector3(_basePos[r, c].x, spawnY, 0f);
                 _blocks[r, c].transform.localScale = Vector3.one * (CellSize * 0.9f);
@@ -697,6 +462,7 @@ namespace Alchemist.Bootstrap
             for (int r = 0; r < Rows; r++)
             for (int c = 0; c < Cols; c++)
             {
+                if (_blocks[r, c] == null || !_blocks[r, c].enabled) continue;
                 if (_dragR == r && _dragC == c) continue;
                 var tr = _blocks[r, c].transform;
                 tr.localScale = Vector3.Lerp(tr.localScale, Vector3.one * CellSize, Time.deltaTime * 8f);
@@ -704,12 +470,147 @@ namespace Alchemist.Bootstrap
             }
         }
 
-        private void ShowToast(string msg)
+        // --------------- Feedback ---------------
+        private void TriggerMixFeedback(Vector3 worldPos, ColorId mixed)
         {
-            _toast = msg;
-            _toastUntil = Time.time + 1.2f;
+#if UNITY_IOS || UNITY_ANDROID
+            try { Handheld.Vibrate(); } catch { }
+#endif
+            StartCoroutine(ScreenShake(0.12f, 0.05f));
+            SpawnPaintSplash(worldPos, ColorToUnity(mixed), 8, 0.35f);
+            PlaySfx(_sfxMix);
+        }
+        private void TriggerExplosionFeedback(List<RC> cells)
+        {
+#if UNITY_IOS || UNITY_ANDROID
+            try { Handheld.Vibrate(); } catch { }
+#endif
+            float mag = Mathf.Min(0.22f, 0.05f + cells.Count * 0.012f);
+            StartCoroutine(ScreenShake(0.30f, mag));
+            for (int i = 0; i < cells.Count; i++)
+                SpawnPaintSplash(_basePos[cells[i].r, cells[i].c], _blocks[cells[i].r, cells[i].c].color, 14, 0.5f);
+            PlaySfx(_sfxExplode);
+        }
+        private IEnumerator ScreenShake(float duration, float magnitude)
+        {
+            var cam = Camera.main;
+            if (cam == null || duration <= 0f) yield break;
+            Vector3 orig = cam.transform.position;
+            float t = 0f;
+            while (t < duration)
+            {
+                float decay = 1f - (t / duration);
+                float ox = (Random.value - 0.5f) * 2f * magnitude * decay;
+                float oy = (Random.value - 0.5f) * 2f * magnitude * decay;
+                cam.transform.position = new Vector3(orig.x + ox, orig.y + oy, orig.z);
+                t += Time.deltaTime; yield return null;
+            }
+            cam.transform.position = orig;
+        }
+        private void SpawnPaintSplash(Vector3 origin, Color color, int count, float lifetime)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                var go = new GameObject("Splash");
+                go.transform.position = origin;
+                go.transform.localScale = Vector3.one * Random.Range(0.18f, 0.42f);
+                var sr = go.AddComponent<SpriteRenderer>();
+                sr.sprite = _squareSprite;
+                sr.color = color;
+                sr.sortingOrder = 50;
+                float ang = Random.Range(0f, Mathf.PI * 2f);
+                float spd = Random.Range(1.2f, 3.6f);
+                var vel = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * spd;
+                StartCoroutine(SplashMotion(go, vel, lifetime));
+            }
+        }
+        private IEnumerator SplashMotion(GameObject go, Vector2 vel, float lifetime)
+        {
+            if (go == null) yield break;
+            var tr = go.transform; var sr = go.GetComponent<SpriteRenderer>();
+            float t = 0f; Vector3 pos = tr.position;
+            while (t < lifetime && go != null)
+            {
+                float u = t / lifetime;
+                vel *= 0.92f;
+                pos += (Vector3)(vel * Time.deltaTime);
+                tr.position = pos;
+                tr.localScale = Vector3.one * Mathf.Lerp(tr.localScale.x, 0.02f, u * 0.6f);
+                var c = sr.color; c.a = 1f - u; sr.color = c;
+                t += Time.deltaTime; yield return null;
+            }
+            if (go != null) Destroy(go);
         }
 
+        // --------------- Audio (procedural) ---------------
+        private void SetupAudio()
+        {
+            _audio = gameObject.AddComponent<AudioSource>();
+            _audio.playOnAwake = false;
+            _sfxMix = GenerateTone(640f, 0.10f, 10f);
+            _sfxExplode = GenerateRumble(0.28f);
+            _sfxClear = GenerateArpeggio(new[] { 523f, 659f, 784f, 1047f }, 0.09f);
+            _sfxFail = GenerateArpeggio(new[] { 440f, 370f, 294f }, 0.12f);
+        }
+        private void PlaySfx(AudioClip c) { if (c != null && _audio != null) _audio.PlayOneShot(c, 0.6f); }
+        private static AudioClip GenerateTone(float freq, float dur, float decay)
+        {
+            const int rate = 44100; int n = (int)(rate * dur);
+            var d = new float[n];
+            for (int i = 0; i < n; i++) {
+                float t = i / (float)rate;
+                float env = Mathf.Exp(-t * decay);
+                d[i] = Mathf.Sin(2f * Mathf.PI * freq * t) * env * 0.5f;
+            }
+            var clip = AudioClip.Create("t", n, 1, rate, false); clip.SetData(d, 0); return clip;
+        }
+        private static AudioClip GenerateRumble(float dur)
+        {
+            const int rate = 44100; int n = (int)(rate * dur);
+            var d = new float[n];
+            for (int i = 0; i < n; i++) {
+                float t = i / (float)rate;
+                float env = Mathf.Exp(-t * 5f);
+                float freq = Mathf.Lerp(180f, 80f, t / dur);
+                float noise = (Random.value - 0.5f) * 0.3f;
+                d[i] = (Mathf.Sin(2f * Mathf.PI * freq * t) + noise) * env * 0.55f;
+            }
+            var clip = AudioClip.Create("r", n, 1, rate, false); clip.SetData(d, 0); return clip;
+        }
+        private static AudioClip GenerateArpeggio(float[] freqs, float stepDur)
+        {
+            const int rate = 44100; int step = (int)(rate * stepDur); int total = step * freqs.Length;
+            var d = new float[total];
+            for (int s = 0; s < freqs.Length; s++)
+            {
+                float f = freqs[s];
+                for (int i = 0; i < step; i++)
+                {
+                    float tt = i / (float)rate;
+                    float env = Mathf.Sin(Mathf.PI * i / step) * 0.45f;
+                    d[s * step + i] = Mathf.Sin(2f * Mathf.PI * f * tt) * env;
+                }
+            }
+            var clip = AudioClip.Create("a", total, 1, rate, false); clip.SetData(d, 0); return clip;
+        }
+
+        // --------------- Utility ---------------
+        private static Color ColorToUnity(ColorId c)
+        {
+            switch (c)
+            {
+                case ColorId.Red:    return new Color(0.90f, 0.22f, 0.27f);
+                case ColorId.Yellow: return new Color(0.97f, 0.83f, 0.30f);
+                case ColorId.Blue:   return new Color(0.28f, 0.58f, 0.94f);
+                case ColorId.Orange: return new Color(0.96f, 0.64f, 0.38f);
+                case ColorId.Green:  return new Color(0.32f, 0.72f, 0.53f);
+                case ColorId.Purple: return new Color(0.62f, 0.31f, 0.87f);
+                case ColorId.White:  return new Color(0.96f, 0.96f, 0.94f);
+                case ColorId.Black:  return new Color(0.10f, 0.10f, 0.12f);
+                case ColorId.Gray:   return new Color(0.42f, 0.44f, 0.48f);
+                default:             return new Color(0.18f, 0.18f, 0.22f);
+            }
+        }
         private static string ColorLabel(ColorId c)
         {
             if (c == ColorId.Red) return "빨강";
@@ -722,126 +623,175 @@ namespace Alchemist.Bootstrap
             if (c == ColorId.Black) return "검정(오염)";
             return c.ToString();
         }
+        private void ShowToast(string msg) { _toast = msg; _toastUntil = Time.time + 1.2f; }
 
-        private void EnsureStyles()
+        private static Sprite BuildSquareSprite()
         {
-            if (_title != null) return;
-            _title = new GUIStyle(GUI.skin.label)
+            const int sz = 128;
+            var tex = new Texture2D(sz, sz, TextureFormat.RGBA32, false);
+            var px = new Color32[sz * sz];
+            float cx = sz / 2f, cy = sz / 2f;
+            float innerHalf = sz * 0.40f, cornerR = sz * 0.14f, aa = 2f;
+            for (int y = 0; y < sz; y++)
+            for (int x = 0; x < sz; x++)
             {
-                fontSize = 22, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
-                normal = { textColor = new Color(0.98f, 0.94f, 0.82f, 1f) },
-            };
-            _hud = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 16, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
-                normal = { textColor = new Color(0.90f, 0.92f, 0.95f, 1f) },
-            };
-            _goalLabel = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 18, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
-                normal = { textColor = new Color(0.62f, 0.31f, 0.87f, 1f) },
-            };
-            _body = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 13, alignment = TextAnchor.MiddleCenter,
-                normal = { textColor = new Color(0.70f, 0.73f, 0.80f, 1f) },
-            };
-            _overlayTitle = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 48, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
-                normal = { textColor = new Color(0.98f, 0.94f, 0.82f, 1f) },
-            };
-            _overlayBody = new GUIStyle(GUI.skin.label)
-            {
-                fontSize = 22, alignment = TextAnchor.MiddleCenter,
-                normal = { textColor = new Color(0.90f, 0.92f, 0.95f, 1f) },
-            };
-            _button = new GUIStyle(GUI.skin.button) { fontSize = 22, fontStyle = FontStyle.Bold };
-
-            _panelBgTex = MakeSolidTexture(new Color(0.08f, 0.09f, 0.12f, 0.92f));
-            _barBgTex = MakeSolidTexture(new Color(0.20f, 0.22f, 0.28f, 1f));
-            _barFillTex = MakeSolidTexture(new Color(0.62f, 0.31f, 0.87f, 1f));
-            _overlayTex = MakeSolidTexture(new Color(0f, 0f, 0f, 0.75f));
+                float rx = Mathf.Abs(x - cx) - innerHalf;
+                float ry = Mathf.Abs(y - cy) - innerHalf;
+                float dxc = Mathf.Max(0f, rx), dyc = Mathf.Max(0f, ry);
+                float sdf = Mathf.Sqrt(dxc * dxc + dyc * dyc) - cornerR;
+                float alpha = Mathf.Clamp01(-sdf / aa + 0.5f);
+                if (alpha <= 0f) { px[y * sz + x] = new Color32(0, 0, 0, 0); continue; }
+                float topBias = 1f - (y / (float)sz);
+                float bright = Mathf.Lerp(0.70f, 1.05f, topBias);
+                float hdx = (x - cx + sz * 0.18f) / (sz * 0.20f);
+                float hdy = (y - cy - sz * 0.14f) / (sz * 0.14f);
+                float hl = Mathf.Clamp01(1f - (hdx * hdx + hdy * hdy)) * 0.35f;
+                bright = Mathf.Clamp01(bright + hl);
+                byte v = (byte)(bright * 255f), a = (byte)(alpha * 255f);
+                px[y * sz + x] = new Color32(v, v, v, a);
+            }
+            tex.SetPixels32(px); tex.filterMode = FilterMode.Bilinear; tex.wrapMode = TextureWrapMode.Clamp; tex.Apply();
+            return Sprite.Create(tex, new Rect(0, 0, sz, sz), new Vector2(0.5f, 0.5f), sz);
         }
-
         private static Texture2D MakeSolidTexture(Color c)
         {
             var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            var px = new[] { c, c, c, c };
-            tex.SetPixels(px);
-            tex.Apply();
-            return tex;
+            tex.SetPixels(new[] { c, c, c, c }); tex.Apply(); return tex;
+        }
+
+        // --------------- GUI ---------------
+        private void EnsureStyles()
+        {
+            if (_title != null) return;
+            _title = new GUIStyle(GUI.skin.label) { fontSize = 22, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.98f, 0.94f, 0.82f, 1f) } };
+            _hud = new GUIStyle(GUI.skin.label) { fontSize = 16, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.90f, 0.92f, 0.95f, 1f) } };
+            _goalLabel = new GUIStyle(GUI.skin.label) { fontSize = 18, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.98f, 0.94f, 0.82f, 1f) } };
+            _body = new GUIStyle(GUI.skin.label) { fontSize = 13, alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new Color(0.70f, 0.73f, 0.80f, 1f) } };
+            _overlayTitle = new GUIStyle(GUI.skin.label) { fontSize = 48, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.98f, 0.94f, 0.82f, 1f) } };
+            _overlayBody = new GUIStyle(GUI.skin.label) { fontSize = 22, alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new Color(0.90f, 0.92f, 0.95f, 1f) } };
+            _button = new GUIStyle(GUI.skin.button) { fontSize = 22, fontStyle = FontStyle.Bold };
+            _stageBtn = new GUIStyle(GUI.skin.button) { fontSize = 20, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+
+            _panelBg = MakeSolidTexture(new Color(0.08f, 0.09f, 0.12f, 0.92f));
+            _barBg = MakeSolidTexture(new Color(0.20f, 0.22f, 0.28f, 1f));
+            _barFill = MakeSolidTexture(new Color(0.62f, 0.31f, 0.87f, 1f));
+            _overlayTex = MakeSolidTexture(new Color(0f, 0f, 0f, 0.82f));
+            _stageBtnBg = MakeSolidTexture(new Color(0.18f, 0.20f, 0.28f, 1f));
         }
 
         private void OnGUI()
         {
             EnsureStyles();
-            DrawTopHud();
-            DrawBottomHint();
-            DrawToast();
-            if (_stageEnded) DrawStageOverlay();
+            switch (_screen)
+            {
+                case ScreenState.Lobby: DrawLobby(); break;
+                case ScreenState.Playing: DrawPlayingHud(); DrawToast(); break;
+                case ScreenState.Result: DrawPlayingHud(); DrawResult(); break;
+            }
         }
 
-        private void DrawTopHud()
-        {
-            int w = Screen.width;
-            int topSafe = 50;
-            int panelH = 110;
-            var panel = new Rect(0, topSafe, w, panelH);
-            GUI.DrawTexture(panel, _panelBgTex);
-
-            GUI.Label(new Rect(20, topSafe + 8, w - 40, 28), "Color Mix: Alchemist", _title);
-
-            // Goal progress bar
-            int barX = 20, barW = w - 40, barH = 22;
-            int barY = topSafe + 42;
-            GUI.DrawTexture(new Rect(barX, barY, barW, barH), _barBgTex);
-            float prog = Mathf.Clamp01((float)_goalProgress / GoalCount);
-            GUI.DrawTexture(new Rect(barX, barY, (int)(barW * prog), barH), _barFillTex);
-            string goalText = "🟣 보라 " + _goalProgress + " / " + GoalCount;
-            GUI.Label(new Rect(barX, barY - 2, barW, barH + 4), goalText, _goalLabel);
-
-            // Moves + Score row
-            int infoY = topSafe + 74;
-            GUI.Label(new Rect(20, infoY, 200, 24), "턴 " + _moves + " / " + MoveLimit, _hud);
-            GUI.Label(new Rect(w - 220, infoY, 200, 24), "점수 " + _score, _hud);
-        }
-
-        private void DrawBottomHint()
+        private void DrawLobby()
         {
             int w = Screen.width, h = Screen.height;
-            GUI.Label(new Rect(0, h - 60, w, 24), "블록을 인접 셀로 드래그 · 보라(🔴+🔵) 5개 만들기!", _body);
+            GUI.Label(new Rect(0, 80, w, 70), "Color Mix: Alchemist", _overlayTitle);
+            GUI.Label(new Rect(0, 150, w, 26), "색을 섞고 폭발시켜 세상을 복원하라", _overlayBody);
+
+            int btnW = Mathf.Min(w - 60, 420);
+            int btnH = 80;
+            int startY = (int)(h * 0.30f);
+            int gap = 12;
+
+            for (int i = 0; i < Stages.Length; i++)
+            {
+                var s = Stages[i];
+                bool unlocked = IsStageUnlocked(i);
+                int earnedStars = GetStoredStars(s.Id);
+                var rect = new Rect((w - btnW) / 2, startY + i * (btnH + gap), btnW, btnH);
+                GUI.backgroundColor = unlocked ? new Color(1f, 1f, 1f, 1f) : new Color(1f, 1f, 1f, 0.4f);
+                string stars = "";
+                for (int k = 0; k < 3; k++) stars += (k < earnedStars) ? "★" : "☆";
+                string lockIcon = unlocked ? "" : "🔒 ";
+                string label = lockIcon + s.Title + "\n" + stars + "  목표: " + ColorLabel(s.GoalColor) + " " + s.GoalCount + "개 / " + s.MoveLimit + "턴";
+                if (GUI.Button(rect, label, _stageBtn) && unlocked)
+                {
+                    StartStage(i);
+                }
+            }
+            GUI.backgroundColor = Color.white;
+        }
+
+        private void DrawPlayingHud()
+        {
+            int w = Screen.width; int topSafe = 50; int panelH = 120;
+            GUI.DrawTexture(new Rect(0, topSafe, w, panelH), _panelBg);
+            GUI.Label(new Rect(20, topSafe + 8, w - 160, 28), _stage.Title, _title);
+
+            // 좌상단 뒤로가기
+            if (GUI.Button(new Rect(w - 90, topSafe + 10, 70, 30), "로비"))
+            {
+                ExitToLobby();
+            }
+
+            int barX = 20, barW = w - 40, barH = 22, barY = topSafe + 46;
+            GUI.DrawTexture(new Rect(barX, barY, barW, barH), _barBg);
+            float prog = Mathf.Clamp01((float)_goalProgress / _stage.GoalCount);
+            GUI.DrawTexture(new Rect(barX, barY, (int)(barW * prog), barH), _barFill);
+            string goalText = ColorLabel(_stage.GoalColor) + " " + _goalProgress + " / " + _stage.GoalCount;
+            GUI.Label(new Rect(barX, barY - 2, barW, barH + 4), goalText, _goalLabel);
+
+            int infoY = topSafe + 84;
+            GUI.Label(new Rect(20, infoY, 200, 24), "턴 " + _moves + " / " + _stage.MoveLimit, _hud);
+            GUI.Label(new Rect(w - 220, infoY, 200, 24), "점수 " + _score, _hud);
+
+            GUI.Label(new Rect(0, Screen.height - 50, w, 22),
+                "인접 셀로 드래그 · 같은 2차색 3개 연결 시 폭발",
+                _body);
         }
 
         private void DrawToast()
         {
             if (Time.time >= _toastUntil || string.IsNullOrEmpty(_toast)) return;
             int w = Screen.width, h = Screen.height;
-            GUI.Label(new Rect(0, h - 150, w, 40), _toast, _overlayTitle);
+            GUI.Label(new Rect(0, h - 140, w, 40), _toast, _overlayTitle);
         }
 
-        private void DrawStageOverlay()
+        private void DrawResult()
         {
             int w = Screen.width, h = Screen.height;
             GUI.DrawTexture(new Rect(0, 0, w, h), _overlayTex);
             string title = _stageCleared ? "STAGE CLEAR" : "STAGE FAILED";
-            GUI.Label(new Rect(0, h / 2 - 180, w, 64), title, _overlayTitle);
-
+            GUI.Label(new Rect(0, h / 2 - 200, w, 64), title, _overlayTitle);
             if (_stageCleared)
             {
                 string stars = "";
                 for (int i = 0; i < 3; i++) stars += (i < _stars) ? "★ " : "☆ ";
-                GUI.Label(new Rect(0, h / 2 - 110, w, 60), stars, _overlayTitle);
+                GUI.Label(new Rect(0, h / 2 - 130, w, 60), stars, _overlayTitle);
             }
+            GUI.Label(new Rect(0, h / 2 - 50, w, 34), "점수 " + _score, _overlayBody);
+            GUI.Label(new Rect(0, h / 2 - 10, w, 28), "턴 " + _moves + " / " + _stage.MoveLimit + " · 최대연쇄 " + _maxChainDepth, _overlayBody);
 
-            GUI.Label(new Rect(0, h / 2 - 40, w, 34), "점수 " + _score, _overlayBody);
-            GUI.Label(new Rect(0, h / 2, w, 28), "턴 " + _moves + " / " + MoveLimit + " · 최대연쇄 " + _maxChainDepth, _overlayBody);
+            int btnW = 240, btnH = 60, gap = 16;
+            bool hasNext = _stageCleared && _stageIdx < Stages.Length - 1;
+            int btnsCount = 2;
+            int totalW = btnsCount * btnW + (btnsCount - 1) * gap;
+            int x0 = (w - totalW) / 2;
+            int y = h / 2 + 60;
 
-            int btnW = 240, btnH = 64;
-            var btnRect = new Rect((w - btnW) / 2, h / 2 + 80, btnW, btnH);
-            if (GUI.Button(btnRect, "다시 도전", _button))
+            if (GUI.Button(new Rect(x0, y, btnW, btnH), _stageCleared ? "재도전" : "다시", _button))
             {
-                ResetStage();
+                StartStage(_stageIdx);
+            }
+            string nextLabel = hasNext ? "다음 스테이지 ▶" : "로비로";
+            if (GUI.Button(new Rect(x0 + btnW + gap, y, btnW, btnH), nextLabel, _button))
+            {
+                if (hasNext) StartStage(_stageIdx + 1);
+                else ExitToLobby();
             }
         }
     }
