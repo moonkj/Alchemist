@@ -5,7 +5,7 @@
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-UNITY_APP="/Applications/Unity/Hub/Editor/6000.0.32f1/Unity.app/Contents/MacOS/Unity"
+UNITY_APP="/Applications/Unity/Unity.app/Contents/MacOS/Unity"
 XCODE_OUTPUT="$PROJECT_DIR/Builds/iOS"
 ARCHIVE_PATH="$PROJECT_DIR/Builds/Alchemist.xcarchive"
 EXPORT_PATH="$PROJECT_DIR/Builds/Export"
