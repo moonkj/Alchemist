@@ -265,6 +265,14 @@ namespace Alchemist.Bootstrap
             int totalScored = 0;
             int depth = 0;
 
+            // 믹스로 생긴 원본 셀의 None 은 매치 여부와 무관하게 낙하/리필로 채움.
+            // WHY: 유저 피드백 '빈칸은 낙하가 안됨. 폭발해야 채워짐' — 믹스만 해도 빈칸이 처리되도록.
+            yield return new WaitForSeconds(0.10f);
+            ApplyGravity();
+            yield return new WaitForSeconds(0.22f);
+            Refill();
+            yield return new WaitForSeconds(0.26f);
+
             while (true)
             {
                 var hits = DetectMatches();

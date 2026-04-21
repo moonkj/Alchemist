@@ -35,14 +35,34 @@ namespace Alchemist.Domain.Colors
 
             if ((combined & ~PrimaryMask) != 0) return ColorId.None;
 
-            if (ba == (byte)ColorId.White && bb == (byte)ColorId.White)
+            // D26 (Wave3-R3): 새 원색이 추가되지 않는 혼합은 과포화 → Black.
+            // - 예: Purple(R|B) + Red(R) → 새 원색 없음 → Black
+            //      Purple + Purple → 같은 색 반복 → Black
+            //      Orange + Green → 모든 원색 합 → White (기존 유지)
+            // 예외: 순수 1-bit 동일 원색 간 혼합(Red+Red 등)은 no-op 으로 그 원색 유지.
+            int aCnt = PopCount3(ba);
+            int bCnt = PopCount3(bb);
+            int combinedCnt = PopCount3(combined);
+            int popMax = aCnt > bCnt ? aCnt : bCnt;
+
+            if (combinedCnt == popMax)
+            {
+                if (ba == bb && aCnt == 1) return (ColorId)(combined & PrimaryMask);
                 return ColorId.Black;
-            if (ba == (byte)ColorId.White && bb != (byte)ColorId.White)
-                return ColorId.Black;
-            if (bb == (byte)ColorId.White && ba != (byte)ColorId.White)
-                return ColorId.Black;
+            }
 
             return (ColorId)(combined & PrimaryMask);
+        }
+
+        /// <summary>1/2/3차 색의 원색 비트(3비트 내) 개수. Primary=1, Secondary=2, White=3.</summary>
+        private static int PopCount3(byte v)
+        {
+            v = (byte)(v & PrimaryMask);
+            int c = 0;
+            if ((v & (byte)ColorId.Red) != 0) c++;
+            if ((v & (byte)ColorId.Yellow) != 0) c++;
+            if ((v & (byte)ColorId.Blue) != 0) c++;
+            return c;
         }
 
         public static bool IsValidRecipe(ColorId c)
