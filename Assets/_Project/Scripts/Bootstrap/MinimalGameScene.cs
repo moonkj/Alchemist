@@ -46,6 +46,8 @@ namespace Alchemist.Bootstrap
         private SpriteRenderer[,] _blocks;
         private ColorId[,] _colorGrid;
         private Vector3[,] _basePos;
+        private float[,] _jellyPhase;   // 각 블록의 브리딩 위상(0..2π)
+        private bool[,] _bouncing;      // Mix/폭발 애니 중엔 브리딩 건너뜀
         private Sprite _squareSprite;
         private DeterministicBlockSpawner _spawner;
 
@@ -77,6 +79,11 @@ namespace Alchemist.Bootstrap
             _blocks = new SpriteRenderer[Rows, Cols];
             _colorGrid = new ColorId[Rows, Cols];
             _basePos = new Vector3[Rows, Cols];
+            _jellyPhase = new float[Rows, Cols];
+            _bouncing = new bool[Rows, Cols];
+            for (int r = 0; r < Rows; r++)
+                for (int c = 0; c < Cols; c++)
+                    _jellyPhase[r, c] = Random.value * Mathf.PI * 2f;
             BuildGrid(seed: Stages[0].Seed);
             FitCameraToBoard();
             SetupAudio();
@@ -237,8 +244,8 @@ namespace Alchemist.Bootstrap
 
         private void SnapBack(int r, int c)
         {
-            _blocks[r, c].transform.position = _basePos[r, c];
-            _blocks[r, c].transform.localScale = Vector3.one * CellSize;
+            // WHY: 즉시 teleport 대신 SpringBackAnim 으로 말캉한 바운스 되돌림.
+            StartCoroutine(SpringBackAnim(r, c));
         }
         private static bool IsAdjacent(int r1, int c1, int r2, int c2)
             => (Mathf.Abs(r1 - r2) == 1 && c1 == c2) || (Mathf.Abs(c1 - c2) == 1 && r1 == r2);
@@ -267,13 +274,17 @@ namespace Alchemist.Bootstrap
 
             _colorGrid[tr, tc] = mixed;
             _colorGrid[sr, sc] = ColorId.None;
-            _blocks[tr, tc].color = ColorToUnity(mixed);
             _blocks[sr, sc].color = ColorToUnity(ColorId.None);
-            _blocks[tr, tc].transform.localScale = Vector3.one * (CellSize * 1.35f);
+            // 타깃은 squash-stretch + 색 그라디언트 보간 (물감이 섞이는 느낌).
+            StartCoroutine(MixBounceAnim(tr, tc, dst, mixed));
 
             if (mixed == _stage.GoalColor) _goalProgress++;
             _moves++;
             TriggerMixFeedback(_basePos[tr, tc], mixed);
+            // 두 원본 색이 '혼합 지점' 에서 섞이는 파편 (양쪽 색 동시 분사).
+            Vector3 mid = (_basePos[sr, sc] + _basePos[tr, tc]) * 0.5f;
+            SpawnPaintSplash(mid, ColorToUnity(src), 10, 0.42f);
+            SpawnPaintSplash(mid, ColorToUnity(dst), 10, 0.42f);
             StartCoroutine(ResolveCascadeCoroutine(mixed));
         }
 
@@ -459,23 +470,94 @@ namespace Alchemist.Bootstrap
 
         private void UpdateScaleDecay()
         {
+            // 말캉한 "숨쉬는" 애니: 모든 블록이 약하게 펄스 + 각자 다른 위상.
+            // WHY: 정적 격자가 벽돌처럼 보인다는 유저 피드백. 이 작은 펄스가 살아있는 물감 느낌을 준다.
             for (int r = 0; r < Rows; r++)
             for (int c = 0; c < Cols; c++)
             {
                 if (_blocks[r, c] == null || !_blocks[r, c].enabled) continue;
                 if (_dragR == r && _dragC == c) continue;
+                if (_bouncing[r, c]) continue; // 바운스 애니 중엔 브리딩 비활성
                 var tr = _blocks[r, c].transform;
-                tr.localScale = Vector3.Lerp(tr.localScale, Vector3.one * CellSize, Time.deltaTime * 8f);
+                float breathe = 1f + Mathf.Sin(Time.time * 2.2f + _jellyPhase[r, c]) * 0.028f;
+                float stretchY = 1f + Mathf.Sin(Time.time * 2.4f + _jellyPhase[r, c] + 1.1f) * 0.022f;
+                Vector3 targetScale = new Vector3(CellSize * breathe, CellSize * stretchY, CellSize);
+                tr.localScale = Vector3.Lerp(tr.localScale, targetScale, Time.deltaTime * 8f);
                 tr.position = Vector3.Lerp(tr.position, _basePos[r, c], Time.deltaTime * 12f);
             }
+        }
+
+        /// <summary>Mix 직후 타깃 셀의 squash-stretch 바운스 + 색상 그라디언트 전환.</summary>
+        private IEnumerator MixBounceAnim(int tr, int tc, ColorId fromColor, ColorId toColor)
+        {
+            if (tr < 0 || tc < 0) yield break;
+            _bouncing[tr, tc] = true;
+            var sr = _blocks[tr, tc];
+            var t = sr.transform;
+            Color a = ColorToUnity(fromColor);
+            Color b = ColorToUnity(toColor);
+
+            float dur = 0.45f;
+            float elapsed = 0f;
+            while (elapsed < dur)
+            {
+                float u = elapsed / dur;
+                // 3단계 squash: 0.7 → 1.45 → 1.0 (스프링)
+                float s = u < 0.25f
+                    ? Mathf.Lerp(1f, 0.70f, u / 0.25f)
+                    : u < 0.55f
+                        ? Mathf.Lerp(0.70f, 1.45f, (u - 0.25f) / 0.30f)
+                        : Mathf.Lerp(1.45f, 1.0f, (u - 0.55f) / 0.45f);
+                // Y 반대로: 옆으로 눌리면 위로 늘어남 → 말캉한 느낌
+                float sy = u < 0.25f
+                    ? Mathf.Lerp(1f, 1.30f, u / 0.25f)
+                    : u < 0.55f
+                        ? Mathf.Lerp(1.30f, 0.75f, (u - 0.25f) / 0.30f)
+                        : Mathf.Lerp(0.75f, 1.0f, (u - 0.55f) / 0.45f);
+                t.localScale = new Vector3(CellSize * s, CellSize * sy, CellSize);
+
+                // 색상 보간 (첫 0.2 초 구간에서 물감 블렌드 시각화)
+                float cu = Mathf.Clamp01(u / 0.45f);
+                sr.color = Color.Lerp(a, b, EaseInOutCubic(cu));
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+            t.localScale = Vector3.one * CellSize;
+            sr.color = b;
+            _bouncing[tr, tc] = false;
+        }
+
+        private static float EaseInOutCubic(float t)
+        {
+            return t < 0.5f ? 4f * t * t * t : 1f - Mathf.Pow(-2f * t + 2f, 3f) / 2f;
+        }
+
+        /// <summary>Drag 실패 시 원본 셀 스프링-백 바운스.</summary>
+        private IEnumerator SpringBackAnim(int sr, int sc)
+        {
+            if (sr < 0 || sc < 0) yield break;
+            _bouncing[sr, sc] = true;
+            var t = _blocks[sr, sc].transform;
+            float dur = 0.30f, elapsed = 0f;
+            while (elapsed < dur)
+            {
+                float u = elapsed / dur;
+                float s = 1f + Mathf.Sin(u * Mathf.PI * 3f) * 0.15f * (1f - u);
+                t.localScale = new Vector3(CellSize * s, CellSize * s, CellSize);
+                t.position = Vector3.Lerp(t.position, _basePos[sr, sc], Time.deltaTime * 18f);
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+            t.position = _basePos[sr, sc];
+            t.localScale = Vector3.one * CellSize;
+            _bouncing[sr, sc] = false;
         }
 
         // --------------- Feedback ---------------
         private void TriggerMixFeedback(Vector3 worldPos, ColorId mixed)
         {
-#if UNITY_IOS || UNITY_ANDROID
-            try { Handheld.Vibrate(); } catch { }
-#endif
+            // WHY: 유저 피드백 '옮길때마다 진동 과함' — 진동은 폭발 전용.
+            //      Mix 는 미세 흔들림 + 스플래시 + 사운드만 유지.
             StartCoroutine(ScreenShake(0.12f, 0.05f));
             SpawnPaintSplash(worldPos, ColorToUnity(mixed), 8, 0.35f);
             PlaySfx(_sfxMix);
