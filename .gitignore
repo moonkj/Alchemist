@@ -1,0 +1,62 @@
+# Unity
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+sysinfo.txt
+*.apk
+*.aab
+*.ipa
+*.unitypackage
+*.app
+crashlytics-build.properties
+.vs/
+.vsconfig
+.idea/
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# Unity auto-generated
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+ExportedObj/
+.consulo/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# IDE
+.vscode/
+.fleet/
+
+# Node / misc
+node_modules/
+.env
+.env.local
+
+# OS
+Thumbs.db
