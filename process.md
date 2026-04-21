@@ -135,3 +135,48 @@ D1 Unity 2D / D2 저사양 A10·2GB / D3 보드 6×7 / D4 팔레트 3슬롯 / D5
 - 실시간 프롬프트 UI 갱신 세부화
 
 **태그:** `v0.2.0-phase2`
+
+---
+
+## 2026-04-21 — Phase 3 완료
+
+### 산출물 (64 files)
+- Domain/Ranking: IRankingService + RankingBoard (4 category enum, Top N)
+- Domain/Badges: 16 배지 (조합 6 / 스타일 5 / 히든 5) + 12 조건 구현
+- Domain/Replay: 순환 버퍼 기반 ReplayRecorder
+- Services/Ranking: LocalRankingService (JSON persistence)
+- Domain/Economy: InkEnergy(max5/300s), Inventory, ItemEffectProcessor (Brush/Eraser/Prism)
+- Domain/Meta: Artwork(챕터 1 = 12조각), GalleryProgress
+- Domain/Player: PlayerProfile + SaveService (atomic tmp→bak→rename) + MiniJson
+- UI/InkEnergyDisplay, ItemButton, GalleryScreen
+- Bootstrap/MetaRoot, GameRoot PendingProfile 훅
+- Tests 10종 추가
+
+**태그:** `v0.3.0-phase3`
+
+---
+
+## 2026-04-21 — Phase 4 완료 (최종)
+
+### 산출물 (32 files)
+- View/Effects: GraphicsQualityLevel, QualityManager (120프레임 p95 25ms 자동 다운그레이드)
+- Shaders: Metaball2D.shader, JellyDeform.shader
+- Services/Haptic: 7 이벤트 매핑 + Rich/Basic/Off 3단계
+- Services/Audio: 7 SfxId + AudioMixer 3채널
+- Services/Theme: Light/Dark 스위치
+- UI/Onboarding: TutorialStage0 (빨+파=보라 4스텝)
+- UI/Debug: DebugHud (FPS/Drawcalls/GC alloc), FrameHitchLogger
+- Bootstrap/AppBootstrap (서비스 싱글톤 등록) + GameRoot Swap 시 Haptic/Audio 트리거
+
+**태그:** `v1.0.0` (최종)
+
+---
+
+## 프로젝트 완료 선언 🎯
+
+- **릴리스 태그**: v0.1.0-phase1 → v0.2.0-phase2 → v0.3.0-phase3 → **v1.0.0**
+- **총 코드**: 170+ files / 16 어셈블리 / 120+ 테스트 케이스
+- **아키텍트 결정**: 25건 (D1~D25)
+- **과학적 토론**: 5건 충돌 해소
+- **전체 요약**: `docs/project_summary.md`
+- **후속 작업**: Phase 5 백로그 참고

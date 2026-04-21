@@ -10,6 +10,9 @@ using Alchemist.Domain.Player;
 using Alchemist.Domain.Prompts;
 using Alchemist.Domain.Scoring;
 using Alchemist.Domain.Stages;
+using Alchemist.Services.Audio;
+using Alchemist.Services.Haptic;
+using Alchemist.Services.Theme;
 using Alchemist.UI;
 using Alchemist.View;
 
@@ -55,6 +58,12 @@ namespace Alchemist.Bootstrap
         private ItemEffectProcessor _itemFx;
         private IClock _clock;
 
+        // Phase 4: cross-cutting services (AppBootstrap 으로부터 주입; 직접 참조 금지)
+        // WHY: AppBootstrap 이 없는 테스트/에디터 직접 경로에서도 null-safe 로 동작.
+        private IHapticService _haptic;
+        private IAudioService _audio;
+        private ThemeService _theme;
+
         // 하드캡(D22) — Phase 1 의 _movesLimit 과 동일 역할.
         private int _movesLimit;
 
@@ -72,6 +81,15 @@ namespace Alchemist.Bootstrap
         {
             // Warm the color-mix cache once so the first mix during play has no spike.
             ColorMixCache.Lookup(ColorId.Red, ColorId.Red);
+
+            // WHY(Phase 4): AppBootstrap 가 있으면 싱글톤에서 서비스 주입. 없으면 null — 안전 호출 사용.
+            if (AppBootstrap.Instance != null)
+            {
+                _haptic = AppBootstrap.Instance.Haptic;
+                _audio = AppBootstrap.Instance.Audio;
+                _theme = AppBootstrap.Instance.Theme;
+                _haptic?.ResetSession();
+            }
 
             // --- Player Profile (from lobby or fallback) ---
             _clock = new SystemClock();
@@ -225,6 +243,18 @@ namespace Alchemist.Bootstrap
         {
             // WHY(M1): InputController.OnSwap 이벤트가 NotifyMoveCommitted 경로에 도달하도록 배선.
             NotifyMoveCommitted();
+
+            // WHY(Phase 4): 픽업/스왑은 BlockPickup 햅틱 + 플롭(1차 혼합 일반화) 사운드.
+            _haptic?.Trigger(HapticEvent.BlockPickup);
+            _audio?.PlaySfx(SfxId.MixPlop);
+
+            // WHY: 남은 턴이 2 이하면 심장박동 트리거 (턴 부족 경고).
+            int remaining = _movesLimit - _score.MovesUsed;
+            if (remaining <= 2 && remaining > 0)
+            {
+                _haptic?.Trigger(HapticEvent.TurnsLow);
+                _audio?.PlaySfx(SfxId.TurnsLowHeartbeat);
+            }
         }
 
         /// <summary>Palette 상태 변경 시 프롬프트 카운터에 1 추가(Store/Use 모두 1회).</summary>

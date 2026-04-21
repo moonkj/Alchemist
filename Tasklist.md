@@ -36,18 +36,49 @@
 | P1-12 | Critical Fix (F1~F11) + D16~D22 | Architect | 🟩 | 11 files 수정 |
 | P1-13 | **Phase 1 완료 선언 + 태그 v0.1.0-phase1** | Architect | 🟩 | commit a9268f4 |
 
-## Phase 2 — Systems (진행 예정)
+## Phase 2 — Systems ✅ 완료 (v0.2.0-phase2)
 
-| ID | 작업 | 담당 | 상태 |
-|----|------|------|------|
-| P2-01 | 필터 벽 (Cell.Filter + FilterTransit 상태) | TBA | 🟦 |
-| P2-02 | 회색 블록 (색 도둑 + Gray→Idle 재활성) | TBA | 🟦 |
-| P2-03 | 프리즘 블록 (Prism 승격 로직) | TBA | 🟦 |
-| P2-04 | 팔레트 슬롯 UI + Store/Use | TBA | 🟦 |
-| P2-05 | 프롬프트 확장 (고급/일일) | TBA | 🟦 |
-| P2-06 | 스테이지 데이터 SO (parMoves/maxMoves 분리, D22) | TBA | 🟦 |
-| P2-07 | MessagePipe 이벤트 허브 통합 (C5) | TBA | 🟦 |
-| P2-08 | Phase 1 백로그 이슈 해소 (H/M/L 선별) | TBA | 🟦 |
+| ID | 작업 | 상태 |
+|----|------|------|
+| P2-01 필터 벽 | 🟩 ChainProcessor.ApplyFilterTransits |
+| P2-02 회색 재활성 | 🟩 GrayReleaseTracker (2회 누적 해제) |
+| P2-03 프리즘 승격 | 🟩 PrismAbsorbProcessor (턴 종료 1패스) |
+| P2-04 팔레트 | 🟩 Palette(3슬롯) + PaletteView + UsePaletteSlotCondition |
+| P2-05 프롬프트 확장 | 🟩 FilterTransitCondition + DailyPuzzle + SampleAdvanced1 |
+| P2-06 StageData SO | 🟩 parMoves/maxMoves 분리(D22) + InitialPlacements |
+| P2-07 MessagePipe | ⬜ Phase 5 이연 |
+| P2-08 Phase 1 백로그 | 🟩 BUG-H10/H11/M1 해소 |
+
+## Phase 3 — Meta ✅ 완료 (v0.3.0-phase3, 64 files)
+
+| 영역 | 상태 |
+|------|------|
+| Ranking (4 category + LocalRankingService JSON) | 🟩 |
+| Badges (16개 + 12 Condition + Evaluator) | 🟩 |
+| Replay (순환 버퍼 Recorder) | 🟩 |
+| Economy (InkEnergy 5/300s + Inventory + ItemEffectProcessor) | 🟩 |
+| Meta (Artwork 챕터1 12조각 + GalleryProgress) | 🟩 |
+| Player (PlayerProfile + SaveService atomic + MiniJson) | 🟩 |
+| UI (InkEnergyDisplay + ItemButton + GalleryScreen) | 🟩 |
+| Bootstrap (MetaRoot + GameRoot PendingProfile) | 🟩 |
+| Tests (10종 추가) | 🟩 |
+
+## Phase 4 — Juice & Polish ✅ 완료 (v1.0.0, 32 files)
+
+| 영역 | 상태 |
+|------|------|
+| Metaball/Jelly Shader + QualityManager (p95 25ms 자동 다운그레이드) | 🟩 |
+| Haptic Service (7 이벤트 × 3단계 강도) | 🟩 |
+| Audio Service (7 SfxId + 3채널 Mixer) | 🟩 |
+| Theme Service (Light/Dark) | 🟩 |
+| Onboarding (TutorialStage0 4스텝) | 🟩 |
+| DebugHud + FrameHitchLogger | 🟩 |
+| AppBootstrap (서비스 싱글톤) | 🟩 |
+
+## 🎯 프로젝트 완료
+- **최종 태그**: v1.0.0
+- **전체 요약**: [docs/project_summary.md](docs/project_summary.md)
+- **Phase 5 백로그**: iOS Core Haptics / OS 다크 / Palette-Board 드롭 / 서버 랭킹 / 리플레이 재생 / MessagePipe / 광고 SDK
 
 ## Phase 2 — Systems (게임 시스템 확장)
 - 필터 벽 / 회색 블록 / 프리즘 블록

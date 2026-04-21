@@ -14,7 +14,10 @@
         "Alchemist.Domain.Meta",
         "Alchemist.Domain.Player",
         "Alchemist.View",
-        "Alchemist.UI"
+        "Alchemist.UI",
+        "Alchemist.Services.Audio",
+        "Alchemist.Services.Haptic",
+        "Alchemist.Services.Theme"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

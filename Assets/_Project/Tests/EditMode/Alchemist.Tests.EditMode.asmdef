@@ -17,6 +17,11 @@
         "Alchemist.Domain.Meta",
         "Alchemist.Domain.Player",
         "Alchemist.Services.Ranking",
+        "Alchemist.Services.Audio",
+        "Alchemist.Services.Haptic",
+        "Alchemist.Services.Theme",
+        "Alchemist.View",
+        "Alchemist.UI",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],
