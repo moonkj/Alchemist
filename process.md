@@ -180,3 +180,36 @@ D1 Unity 2D / D2 저사양 A10·2GB / D3 보드 6×7 / D4 팔레트 3슬롯 / D5
 - **과학적 토론**: 5건 충돌 해소
 - **전체 요약**: `docs/project_summary.md`
 - **후속 작업**: Phase 5 백로그 참고
+
+---
+
+## 2026-04-21 — iPhone 무선 설치 점검
+
+### 유저 요청
+"아이폰에 설치해줘" → 무선 기기 설치 실행 요청.
+
+### 현재 시스템 점검 결과
+- ✅ **Xcode 26.3 설치됨** (Build 17C529)
+- ✅ **iPhone Air `Moon` 무선 연결 상태** (udid `835A5E84-05B4-520C-B52C-E69BBEE38FED`, state: connected)
+- ✅ **서명 인증서 유효**: Apple Development (imurmkj@naver.com / R3K972V8DA) + Apple Distribution (kyeongju Moon / QN975MTM7H)
+- ❌ **Unity Editor 미설치** — `/Applications/Unity*`, `/Applications/Unity/Hub/Editor/` 둘 다 부재
+- ❌ **ios-deploy 미설치** (단 `xcrun devicectl`은 Xcode 26 번들)
+- ❌ **.app 번들 없음** (빌드된 적 없음)
+- ❌ **Scene/Prefab 부재** — 프로젝트는 순수 C# 스크립트 스캐폴드
+
+### 진짜 블로커
+```
+[C# 소스] ──❌Unity 미설치──> [Xcode 프로젝트] ──✅archive──> [.app] ──✅devicectl 무선──> iPhone
+         Scene/Prefab도 없음
+```
+무선 설치 단계는 가능하나, 그 앞단(Unity 빌드)이 불가능.
+
+### 설치 가이드 산출물
+- `Packages/manifest.json` — Unity 6 LTS + URP 2D + TMP + Test Framework
+- `ProjectSettings/ProjectVersion.txt` — Unity 6000.0.32f1 LTS 마커
+- `INSTALL_iOS.md` — 7단계 수동 설치 가이드 (환경 준비 → Scene 제작 → 서명 → 기기 설치)
+
+### 진행 선택지 (유저 결정 대기)
+- **A. Unity 설치 후 정상 경로** (`brew install --cask unity-hub` → Editor 설치 → Scene 제작 → 빌드 → devicectl 무선 설치, 총 4~10시간)
+- **B. Swift/SpriteKit 네이티브 프로토타입** (Unity 우회, 2~4시간, 별도 코드베이스)
+- **C. Unity Cloud Build + TestFlight** (GitHub push → 자동 빌드 → TestFlight 무선 배포, Unity Personal 계정 필요)
