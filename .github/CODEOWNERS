@@ -1,0 +1,30 @@
+# ─────────────────────────────────────────────────────────────
+# CODEOWNERS — 리뷰 자동 할당 규칙
+# 형식: <path> <reviewer1> <reviewer2> ...
+# 매치 우선순위: 하단 규칙이 상단을 덮어씀.
+# ─────────────────────────────────────────────────────────────
+
+# 기본 오너: 모든 변경은 리드에게 최소 1명 리뷰
+*                                       @moonkj
+
+# ── Domain (순수 C#, TDD 엄격) ───────────────────────────────
+/Assets/_Project/Domain/                @moonkj
+/Assets/_Project/Tests/                 @moonkj
+
+# ── View / Presentation (Unity 의존) ─────────────────────────
+/Assets/_Project/View/                  @moonkj
+/Assets/_Project/Presentation/          @moonkj
+/Assets/_Project/UI/                    @moonkj
+
+# ── Infra / Bootstrap ────────────────────────────────────────
+/Assets/_Project/Bootstrap/             @moonkj
+/Assets/_Project/Infrastructure/        @moonkj
+
+# ── CI / Build / Scripts ─────────────────────────────────────
+/.github/                               @moonkj
+/scripts/                               @moonkj
+/ProjectSettings/                       @moonkj
+
+# ── Docs ─────────────────────────────────────────────────────
+/docs/                                  @moonkj
+*.md                                    @moonkj

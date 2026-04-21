@@ -1,0 +1,162 @@
+# ─────────────────────────────────────────────────────────────
+# release-ios.yml — 태그 기반 iOS 릴리스
+# 트리거: v* 태그 푸시 (예: v1.0.0, v1.1.0-beta)
+# 흐름:   Unity batch build → xcodebuild archive → export .ipa →
+#         TestFlight 업로드 (실패 시 Artifact 업로드로 폴백)
+# 비고:   Xcode 26.3 + iOS SDK 26.2 기준 (runner 이미지 최신 사용)
+# ─────────────────────────────────────────────────────────────
+name: Release - iOS TestFlight
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      upload_testflight:
+        description: 'TestFlight 자동 업로드 여부'
+        required: false
+        default: 'true'
+
+jobs:
+  build-ios:
+    name: Build & Archive (iOS)
+    runs-on: macos-14
+    timeout-minutes: 90
+
+    env:
+      BUNDLE_ID: com.moonkj.colormixalchemist
+      TEAM_ID: QN975MTM7H
+      XCODE_OUTPUT: ${{ github.workspace }}/Builds/iOS
+      ARCHIVE_PATH: ${{ github.workspace }}/Builds/Alchemist.xcarchive
+      EXPORT_PATH: ${{ github.workspace }}/Builds/Export
+
+    steps:
+      - name: Checkout (태그 커밋)
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 1
+
+      - name: Select Xcode (가능한 최신)
+        run: |
+          # runner 에 설치된 가장 높은 Xcode 버전 선택.
+          # 26.3 미설치 시 자동 폴백.
+          sudo xcode-select -s "$(ls -1d /Applications/Xcode*.app | sort -V | tail -1)/Contents/Developer"
+          xcodebuild -version
+
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-iOS-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-iOS-
+
+      # ── 1. Unity batch build (BuildScript.BuildIOS) ────────
+      - name: Unity iOS Build
+        uses: game-ci/unity-builder@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          unityVersion: 6000.0.32f1
+          targetPlatform: iOS
+          buildMethod: Alchemist.EditorTools.BuildScript.BuildIOS
+          buildsPath: Builds
+          allowDirtyBuild: true
+
+      # ── 2. 서명 자산 설치 (App Store Connect API Key 기반) ──
+      # 사전 등록 Secrets:
+      #   APP_STORE_CONNECT_API_KEY_ID
+      #   APP_STORE_CONNECT_API_ISSUER_ID
+      #   APP_STORE_CONNECT_API_KEY_P8  (p8 전체 텍스트)
+      - name: Install App Store Connect API Key
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}" \
+            > ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}.p8
+          chmod 600 ~/.appstoreconnect/private_keys/*.p8
+
+      # ── 3. xcodebuild archive (App Store 용 서명) ──────────
+      - name: Xcode Archive
+        run: |
+          xcodebuild \
+            -project "$XCODE_OUTPUT/Unity-iPhone.xcodeproj" \
+            -scheme Unity-iPhone \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }} \
+            -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }} \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            archive
+
+      # ── 4. .ipa export (app-store 방식) ─────────────────────
+      - name: Export IPA
+        run: |
+          cat > /tmp/ExportOptions.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store</string>
+            <key>teamID</key><string>${{ env.TEAM_ID }}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>destination</key><string>export</string>
+            <key>uploadSymbols</key><true/>
+            <key>stripSwiftSymbols</key><true/>
+          </dict>
+          </plist>
+          PLIST
+
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist /tmp/ExportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath ~/.appstoreconnect/private_keys/AuthKey_${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}.p8 \
+            -authenticationKeyID ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }} \
+            -authenticationKeyIssuerID ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+
+      # ── 5a. TestFlight 업로드 (Apple Transporter / altool) ─
+      - name: Upload to TestFlight
+        if: ${{ github.event.inputs.upload_testflight != 'false' }}
+        continue-on-error: true  # 업로드 실패해도 artifact 는 남김
+        id: testflight
+        run: |
+          IPA=$(find "$EXPORT_PATH" -maxdepth 2 -name '*.ipa' | head -1)
+          echo "IPA: $IPA"
+          xcrun altool --upload-app \
+            --type ios \
+            --file "$IPA" \
+            --apiKey ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }} \
+            --apiIssuer ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+
+      # ── 5b. Fallback: Artifact 업로드 (수동 배포용) ─────────
+      - name: Upload IPA Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-${{ github.ref_name }}
+          path: |
+            Builds/Export/*.ipa
+            Builds/Alchemist.xcarchive
+          retention-days: 30
+
+      # ── 6. GitHub Release 초안 생성 ────────────────────────
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: Builds/Export/*.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

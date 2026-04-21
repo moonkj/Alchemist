@@ -1,0 +1,94 @@
+# ─────────────────────────────────────────────────────────────
+# ci.yml — PR 검증 파이프라인
+# 목적: PR 이 Main 으로 들어오기 전 EditMode 테스트(120+) 를 실행하여
+#       회귀를 조기에 차단한다.
+# 실행 환경: macOS 14 ARM64 (Apple Silicon) — Unity Apple Silicon 네이티브
+# Unity 버전: 6000.0.32f1 LTS (프로젝트 고정)
+# 라이선스: UNITY_LICENSE (Personal 계정 ULF 전체 텍스트)
+# ─────────────────────────────────────────────────────────────
+name: CI - PR Validation
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Assets/**'
+      - 'Packages/**'
+      - 'ProjectSettings/**'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+concurrency:
+  # 동일 PR 의 중복 실행을 자동 취소 (리소스/시간 절약)
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  editmode-tests:
+    name: EditMode Tests (Unity 6000.0.32f1)
+    runs-on: macos-14  # Apple Silicon runner (ARM64)
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 1
+
+      # ── Library 캐시: 재빌드 시간 대폭 단축 ────────────────
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-${{ runner.os }}-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-${{ runner.os }}-
+
+      # ── EditMode 테스트 실행 (game-ci) ─────────────────────
+      # Apple Silicon 런너에서 동작하는 unity-test-runner v4+ 사용.
+      # 결과는 JUnit XML 로 생성 → 실패 시 PR 자동 블록.
+      - name: Run EditMode Tests
+        id: tests
+        uses: game-ci/unity-test-runner@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          unityVersion: 6000.0.32f1
+          testMode: editmode
+          artifactsPath: test-results
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: EditMode Test Report
+          coverageOptions: 'generateAdditionalMetrics;generateHtmlReport;generateBadgeReport'
+
+      # ── 결과 업로드: 실패해도 로그 확보 ─────────────────────
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: editmode-test-results
+          path: ${{ steps.tests.outputs.artifactsPath }}
+          retention-days: 14
+
+      - name: Upload Coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: ${{ steps.tests.outputs.coveragePath }}
+          retention-days: 14
+
+  # ── Lint/Format 검증 (선택적 게이트) ─────────────────────
+  static-checks:
+    name: Static Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect forbidden patterns
+        run: |
+          # Debug.Log 남용, TODO 우선순위 체크 등 프로젝트 규칙
+          ! grep -rn "Debug\.Log" Assets/_Project/Domain 2>/dev/null \
+            || (echo "Domain 레이어에 Debug.Log 금지" && exit 1)

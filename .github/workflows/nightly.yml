@@ -1,0 +1,104 @@
+# ─────────────────────────────────────────────────────────────
+# nightly.yml — 야간 퍼포먼스 회귀 테스트
+# Cron: 매일 02:00 KST (17:00 UTC 전일)
+# 시나리오(5): boot, match_storm, combo_chain, jelly_heavy, pause_resume
+# 회귀 감지 시 → GitHub Issue 자동 생성 (label: perf-regression)
+# ─────────────────────────────────────────────────────────────
+name: Nightly - Performance Regression
+
+on:
+  schedule:
+    # 17:00 UTC = 02:00 KST
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+    inputs:
+      threshold_ms:
+        description: '회귀 판정 기준 (평균 프레임 ms)'
+        required: false
+        default: '16.7'
+
+jobs:
+  perf:
+    name: Performance Scenarios
+    runs-on: macos-14
+    timeout-minutes: 60
+    env:
+      PERF_OUTPUT: ${{ github.workspace }}/PerfResults
+      PERF_THRESHOLD_MS: ${{ github.event.inputs.threshold_ms || '16.7' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Cache Unity Library
+        uses: actions/cache@v4
+        with:
+          path: Library
+          key: Library-perf-${{ hashFiles('Assets/**', 'Packages/**', 'ProjectSettings/**') }}
+          restore-keys: |
+            Library-perf-
+
+      # ── Unity PlayMode 성능 테스트 실행 ────────────────────
+      # 시나리오는 Assets/_Project/Tests/Performance/ 하위에 존재한다고 가정.
+      # (아직 미구현이면 workflow 는 성공하되 'no tests found' 로 기록)
+      - name: Run Performance Tests
+        uses: game-ci/unity-test-runner@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          unityVersion: 6000.0.32f1
+          testMode: playmode
+          testCategory: Performance
+          artifactsPath: ${{ env.PERF_OUTPUT }}
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          checkName: Nightly Perf Report
+
+      # ── 회귀 판정 스크립트 실행 ─────────────────────────────
+      - name: Evaluate regression
+        id: eval
+        continue-on-error: true
+        run: |
+          bash scripts/perf_evaluate.sh "$PERF_OUTPUT" "$PERF_THRESHOLD_MS"
+        # 스크립트는 회귀 시 exit 1, 정상 시 exit 0.
+        # continue-on-error: true → 다음 단계에서 결과를 Issue 로 전환.
+
+      - name: Upload Perf Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-perf-${{ github.run_id }}
+          path: ${{ env.PERF_OUTPUT }}
+          retention-days: 30
+
+      # ── 회귀 감지 시 Issue 자동 생성 ────────────────────────
+      - name: Create regression Issue
+        if: steps.eval.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title = `[perf-regression] Nightly ${new Date().toISOString().slice(0,10)}`;
+            const body = [
+              '## 야간 성능 회귀 감지',
+              '',
+              `- Run: ${runUrl}`,
+              `- Threshold: ${process.env.PERF_THRESHOLD_MS} ms/frame`,
+              '- 시나리오 결과는 Artifacts 의 `nightly-perf-${{ github.run_id }}` 참조.',
+              '',
+              '### 권장 조치',
+              '- [ ] 퍼포먼스 리그레션 범인 커밋 bisect',
+              '- [ ] Domain 레이어 allocation 프로파일링',
+              '- [ ] JellyFeedback / Metaball 파라미터 재검토',
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['perf-regression', 'priority:high'],
+            });
