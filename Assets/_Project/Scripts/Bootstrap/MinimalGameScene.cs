@@ -79,6 +79,15 @@ namespace Alchemist.Bootstrap
         private Vector3 _lastDragWorld;
         private Vector2 _dragVelEma;
 
+        // --------------- Palette Slots (D4) ---------------
+        private const int PaletteCount = 3;
+        private SpriteRenderer[] _paletteSprites;
+        private ColorId[] _paletteColors;
+        private Vector3[] _palettePos;
+        private enum DragSource { None, Board, Palette }
+        private DragSource _dragSource = DragSource.None;
+        private int _dragSlotIdx = -1;
+
         // --------------- Play state ---------------
         private int _score, _moves, _maxChainDepth;
         private int _goalProgress;
@@ -127,6 +136,7 @@ namespace Alchemist.Bootstrap
                 for (int c = 0; c < Cols; c++)
                     _jellyPhase[r, c] = Random.value * Mathf.PI * 2f;
             BuildGrid(seed: Stages[0].Seed);
+            BuildPaletteSlots();
             FitCameraToBoard();
             SetupAudio();
             SetBoardVisible(false); // 로비에선 숨김
@@ -172,20 +182,67 @@ namespace Alchemist.Bootstrap
             {
                 if (_blocks[r, c] != null) _blocks[r, c].enabled = on;
             }
+            if (_paletteSprites != null)
+            {
+                for (int i = 0; i < _paletteSprites.Length; i++)
+                    if (_paletteSprites[i] != null) _paletteSprites[i].enabled = on;
+            }
+        }
+
+        /// <summary>팔레트 슬롯 3개를 보드 하단에 월드 스페이스 오브젝트로 배치 (1회).</summary>
+        private void BuildPaletteSlots()
+        {
+            if (_paletteSprites != null) return;
+            _paletteSprites = new SpriteRenderer[PaletteCount];
+            _paletteColors = new ColorId[PaletteCount];
+            _palettePos = new Vector3[PaletteCount];
+            float step = CellSize + Gap;
+            float totalW = PaletteCount * step - Gap;
+            float originX = -totalW / 2f + CellSize / 2f;
+            float bottomY = _basePos[Rows - 1, 0].y - step * 1.2f;
+            for (int i = 0; i < PaletteCount; i++)
+            {
+                var go = new GameObject("Slot_" + i);
+                go.transform.parent = transform;
+                var sr = go.AddComponent<SpriteRenderer>();
+                sr.sprite = _squareSprite;
+                sr.color = new Color(0.22f, 0.24f, 0.30f, 0.55f);
+                sr.sortingOrder = 2;
+                _paletteSprites[i] = sr;
+                _paletteColors[i] = ColorId.None;
+                _palettePos[i] = new Vector3(originX + i * step, bottomY, 0f);
+                go.transform.position = _palettePos[i];
+                go.transform.localScale = Vector3.one * (CellSize * 0.85f);
+            }
+        }
+
+        private void ResetPaletteColors()
+        {
+            if (_paletteSprites == null) return;
+            for (int i = 0; i < PaletteCount; i++)
+            {
+                _paletteColors[i] = ColorId.None;
+                _paletteSprites[i].color = new Color(0.22f, 0.24f, 0.30f, 0.55f);
+                _paletteSprites[i].transform.position = _palettePos[i];
+                _paletteSprites[i].transform.localScale = Vector3.one * (CellSize * 0.85f);
+                _paletteSprites[i].transform.rotation = Quaternion.identity;
+            }
         }
 
         private void FitCameraToBoard()
         {
             var cam = Camera.main;
             if (cam == null) return;
-            float halfH = (Rows * (CellSize + Gap) - Gap) / 2f;
+            // 팔레트 슬롯 한 줄 추가 공간 확보 (약 1.2 step 아래로 확장)
+            float halfH = (Rows * (CellSize + Gap) - Gap) / 2f + (CellSize + Gap) * 0.9f;
             float halfW = (Cols * (CellSize + Gap) - Gap) / 2f;
             float aspect = (float)Screen.width / Mathf.Max(1, Screen.height);
             float szH = halfH;
             float szW = halfW / Mathf.Max(0.01f, aspect);
             cam.orthographic = true;
             cam.orthographicSize = Mathf.Max(szH, szW) * 1.1f;
-            cam.transform.position = new Vector3(0f, 0f, -10f);
+            // 카메라 중심을 살짝 아래로 내려 보드 위쪽 여백 확보 (HUD 공간)
+            cam.transform.position = new Vector3(0f, -(CellSize + Gap) * 0.5f, -10f);
         }
 
         // --------------- Stage management ---------------
@@ -362,17 +419,16 @@ namespace Alchemist.Bootstrap
 
             _colorGrid[tr, tc] = mixed;
             _colorGrid[sr, sc] = ColorId.None;
-            _blocks[sr, sc].color = ColorToUnity(ColorId.None);
-            // 타깃은 squash-stretch + 색 그라디언트 보간 (물감이 섞이는 느낌).
-            StartCoroutine(MixBounceAnim(tr, tc, dst, mixed));
+            // 소스 블록이 타깃으로 흘러들어가며 녹는 연출. 타깃은 부드럽게 받아내며 색 그라디언트.
+            StartCoroutine(MixPaintFlow(sr, sc, tr, tc, src, dst, mixed));
 
             if (mixed == _stage.GoalColor) _goalProgress++;
             _moves++;
             TriggerMixFeedback(_basePos[tr, tc], mixed);
-            // 두 원본 색이 '혼합 지점' 에서 섞이는 파편 (양쪽 색 동시 분사).
+            // 두 원본 색이 '혼합 지점' 에서 섞이는 작은 파편 (세기 축소).
             Vector3 mid = (_basePos[sr, sc] + _basePos[tr, tc]) * 0.5f;
-            SpawnPaintSplash(mid, ColorToUnity(src), 10, 0.42f);
-            SpawnPaintSplash(mid, ColorToUnity(dst), 10, 0.42f);
+            SpawnPaintSplash(mid, ColorToUnity(src), 6, 0.30f);
+            SpawnPaintSplash(mid, ColorToUnity(dst), 6, 0.30f);
             StartCoroutine(ResolveCascadeCoroutine(mixed));
         }
 
@@ -661,8 +717,9 @@ namespace Alchemist.Bootstrap
 
         private void UpdateScaleDecay()
         {
-            // 공격적 jelly 패치: X ±7% / Y ±8.5% 반위상 + 회전 ±1.5° wobble.
-            // WHY: 기존 ±2.8% 은 지각 한계 미만. 이제 ±6~7픽셀 변동으로 "젤리 조직" 체감.
+            // WHY(유저 피드백): '가만히 있을 때 막 움직이는 게 아님' — 브리딩 진폭을
+            //                   ±7/8.5% → ±1% 로 극단 축소. 거의 정지 상태지만 완전 경직은 피함.
+            //                   회전 wobble 도 제거.
             for (int r = 0; r < Rows; r++)
             for (int c = 0; c < Cols; c++)
             {
@@ -672,71 +729,91 @@ namespace Alchemist.Bootstrap
 
                 var tr = _blocks[r, c].transform;
                 float ph = _jellyPhase[r, c];
-                float breatheX = 1f + Mathf.Sin(Time.time * 3.0f + ph) * 0.070f;
-                float breatheY = 1f + Mathf.Sin(Time.time * 3.4f + ph + Mathf.PI) * 0.085f;
+                // 매우 미세한 호흡 (인지 한계에 가까움) — 완전 정적도 아니고 움직임도 아님
+                float breatheX = 1f + Mathf.Sin(Time.time * 1.6f + ph) * 0.010f;
+                float breatheY = 1f + Mathf.Sin(Time.time * 1.8f + ph + Mathf.PI) * 0.012f;
                 Vector3 targetScale = new Vector3(CellSize * breatheX, CellSize * breatheY, CellSize);
-                tr.localScale = Vector3.Lerp(tr.localScale, targetScale, Time.deltaTime * 14f);
+                tr.localScale = Vector3.Lerp(tr.localScale, targetScale, Time.deltaTime * 10f);
 
-                float rotZ = Mathf.Sin(Time.time * 1.4f + ph * 1.3f) * 1.5f;
-                Quaternion targetRot = Quaternion.Euler(0f, 0f, rotZ);
-                tr.rotation = Quaternion.Slerp(tr.rotation, targetRot, Time.deltaTime * 10f);
+                // 회전은 0 으로 수렴 (wobble 제거)
+                tr.rotation = Quaternion.Slerp(tr.rotation, Quaternion.identity, Time.deltaTime * 10f);
 
                 tr.position = Vector3.Lerp(tr.position, _basePos[r, c], Time.deltaTime * 14f);
             }
         }
 
-        /// <summary>Mix 직후 타깃 셀의 squash-stretch 바운스 + 색상 그라디언트 전환.</summary>
-        private IEnumerator MixBounceAnim(int tr, int tc, ColorId fromColor, ColorId toColor)
+        /// <summary>
+        /// 물감 흐름 연출: 소스 블록이 타깃으로 흘러들어가며 녹고, 타깃은 부드럽게 pulse 하며
+        /// 색이 블렌드. 딱딱한 squash 대신 유체 느낌의 soft-pulse.
+        /// </summary>
+        private IEnumerator MixPaintFlow(int srcR, int srcC, int tr, int tc,
+            ColorId sourceColor, ColorId fromTarget, ColorId toColor)
         {
             if (tr < 0 || tc < 0) yield break;
+
+            var srcSr = _blocks[srcR, srcC];
+            var srcT = srcSr.transform;
+            Vector3 srcStart = srcT.position;
+            Vector3 targetPos = _basePos[tr, tc];
+            Vector3 srcStartScale = srcT.localScale;
+            Color srcOrigColor = ColorToUnity(sourceColor);
+            srcSr.color = srcOrigColor;
+
+            // Phase 1: 소스가 타깃으로 흘러들어감 — 위치·크기·알파 EaseInQuad, 미세 stretch
+            float p1 = 0.22f, e1 = 0f;
+            while (e1 < p1)
+            {
+                float u = e1 / p1;
+                float ease = u * u;
+                srcT.position = Vector3.Lerp(srcStart, targetPos, ease);
+                float shrink = Mathf.Lerp(1f, 0.35f, ease);
+                srcT.localScale = new Vector3(CellSize * shrink, CellSize * shrink, CellSize);
+                var c = srcOrigColor; c.a = 1f - ease; srcSr.color = c;
+                e1 += Time.deltaTime;
+                yield return null;
+            }
+            // 소스 정리 — None 셀로 복귀
+            srcT.position = _basePos[srcR, srcC];
+            srcT.localScale = Vector3.one * CellSize;
+            var noneCol = ColorToUnity(ColorId.None);
+            srcSr.color = noneCol;
+
+            // Phase 2: 타깃이 부드럽게 pulse 하며 색 블렌드 (soft, 딱딱하지 않음)
             _bouncing[tr, tc] = true;
-            var sr = _blocks[tr, tc];
-            var t = sr.transform;
-            Color a = ColorToUnity(fromColor);
-            Color b = ColorToUnity(toColor);
+            var tSr = _blocks[tr, tc];
+            var tT = tSr.transform;
+            Color fromC = ColorToUnity(fromTarget);
+            Color toC = ColorToUnity(toColor);
 
-            float dur = 0.45f;
-            float elapsed = 0f;
-            while (elapsed < dur)
+            float p2 = 0.32f, e2 = 0f;
+            while (e2 < p2)
             {
-                float u = elapsed / dur;
-                // 3단계 squash: 0.7 → 1.45 → 1.0 (스프링)
-                float s = u < 0.25f
-                    ? Mathf.Lerp(1f, 0.70f, u / 0.25f)
-                    : u < 0.55f
-                        ? Mathf.Lerp(0.70f, 1.45f, (u - 0.25f) / 0.30f)
-                        : Mathf.Lerp(1.45f, 1.0f, (u - 0.55f) / 0.45f);
-                // Y 반대로: 옆으로 눌리면 위로 늘어남 → 말캉한 느낌
-                float sy = u < 0.25f
-                    ? Mathf.Lerp(1f, 1.30f, u / 0.25f)
-                    : u < 0.55f
-                        ? Mathf.Lerp(1.30f, 0.75f, (u - 0.25f) / 0.30f)
-                        : Mathf.Lerp(0.75f, 1.0f, (u - 0.55f) / 0.45f);
-                t.localScale = new Vector3(CellSize * s, CellSize * sy, CellSize);
-
-                // 색상 보간 (첫 0.2 초 구간에서 물감 블렌드 시각화)
-                float cu = Mathf.Clamp01(u / 0.45f);
-                sr.color = Color.Lerp(a, b, EaseInOutCubic(cu));
-                elapsed += Time.deltaTime;
+                float u = e2 / p2;
+                // sin 펄스: 0 → 0.18(peak) → 0 (수평/수직 동일, 등방 — 딱딱한 축변형 X)
+                float pulse = Mathf.Sin(u * Mathf.PI) * 0.18f;
+                float s = 1f + pulse;
+                tT.localScale = new Vector3(CellSize * s, CellSize * s, CellSize);
+                // 색은 smoothstep 보간 — 물감이 퍼지듯
+                float cu = Mathf.SmoothStep(0f, 1f, u);
+                tSr.color = Color.Lerp(fromC, toC, cu);
+                e2 += Time.deltaTime;
                 yield return null;
             }
 
-            // Phase 2: 에코 잔향 (±5.5% sin 4.5Hz, 2차 감쇠) — 액체 출렁임
-            float echoDur = 0.25f, echoFreq = 4.5f, echoAmp = 0.055f;
-            float eT = 0f;
-            while (eT < echoDur)
+            // Phase 3: 작은 잔향 (±2% sin, 4Hz, 0.18s) — 미세 출렁임
+            float p3 = 0.18f, e3 = 0f;
+            while (e3 < p3)
             {
-                float u = eT / echoDur;
+                float u = e3 / p3;
                 float decay = (1f - u) * (1f - u);
-                float ex = 1f + Mathf.Sin(eT * 2f * Mathf.PI * echoFreq) * echoAmp * decay;
-                float ey = 1f - Mathf.Sin(eT * 2f * Mathf.PI * echoFreq) * echoAmp * decay;
-                t.localScale = new Vector3(CellSize * ex, CellSize * ey, CellSize);
-                eT += Time.deltaTime;
+                float osc = Mathf.Sin(e3 * 2f * Mathf.PI * 4f) * 0.020f * decay;
+                tT.localScale = new Vector3(CellSize * (1f + osc), CellSize * (1f - osc), CellSize);
+                e3 += Time.deltaTime;
                 yield return null;
             }
 
-            t.localScale = Vector3.one * CellSize;
-            sr.color = b;
+            tT.localScale = Vector3.one * CellSize;
+            tSr.color = toC;
             _bouncing[tr, tc] = false;
         }
 
@@ -1278,12 +1355,9 @@ namespace Alchemist.Bootstrap
             GUI.Label(new Rect(16, infoY, 260, 34), "턴 " + _moves + " / " + _stage.MoveLimit, _body);
             GUI.Label(new Rect(w - 240 - 16, infoY - 4, 240, 40), _displayedScore.ToString("N0"), _scoreBig);
 
-            // 캐스케이드 중이면 입력 잠금 인디케이터 (UX v3 #6)
-            if (_inputLocked && _screen == ScreenState.Playing)
-            {
-                GUI.DrawTexture(new Rect(0, topSafe + panelH, w, Screen.height - topSafe - panelH), _dimOverlay);
-                GUI.Label(new Rect(0, (Screen.height + topSafe + panelH) / 2 - 16, w, 32), "연쇄 처리 중…", _overlayBody);
-            }
+            // WHY(유저 피드백): '합쳐질 때 화면 왜 어두워짐' — 일반 믹스에도 dim 이 뜨는 것이
+            //                   원인. 이제 chain depth ≥ 2 실제 연쇄 구간에만 아주 짧게 보이게.
+            // 단일 mix(비연쇄) 에선 아예 표시 안 함.
 
             // 하단 힌트 (safeArea 하단 여백 확보)
             float bottomSafeY = Screen.height - (sa.y + sa.height);
