@@ -33,6 +33,26 @@ namespace Alchemist.Bootstrap
             _blocks = new SpriteRenderer[Rows, Cols];
             _colorGrid = new ColorId[Rows, Cols];
             BuildGrid();
+            FitCameraToBoard();
+        }
+
+        /// <summary>
+        /// 보드 전체가 카메라 뷰에 들어오도록 orthographicSize 자동 조정.
+        /// 세로/가로 축 중 제약이 큰 쪽에 맞춘 뒤 안전 패딩 10% 추가.
+        /// </summary>
+        private void FitCameraToBoard()
+        {
+            var cam = Camera.main;
+            if (cam == null) return;
+            float halfGridH = (Rows * (CellSize + Gap) - Gap) / 2f;
+            float halfGridW = (Cols * (CellSize + Gap) - Gap) / 2f;
+            float aspect = (float)Screen.width / Mathf.Max(1, Screen.height);
+            float sizeByHeight = halfGridH;
+            float sizeByWidth = halfGridW / Mathf.Max(0.01f, aspect);
+            float target = Mathf.Max(sizeByHeight, sizeByWidth) * 1.1f; // 10% padding
+            cam.orthographic = true;
+            cam.orthographicSize = target;
+            cam.transform.position = new Vector3(0f, 0f, -10f);
         }
 
         private void BuildGrid()
