@@ -10,6 +10,9 @@
         "Alchemist.Domain.Scoring",
         "Alchemist.Domain.Palette",
         "Alchemist.Domain.Stages",
+        "Alchemist.Domain.Economy",
+        "Alchemist.Domain.Meta",
+        "Alchemist.Domain.Player",
         "Alchemist.View",
         "Alchemist.UI"
     ],

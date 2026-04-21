@@ -10,6 +10,13 @@
         "Alchemist.Domain.Scoring",
         "Alchemist.Domain.Palette",
         "Alchemist.Domain.Stages",
+        "Alchemist.Domain.Ranking",
+        "Alchemist.Domain.Badges",
+        "Alchemist.Domain.Replay",
+        "Alchemist.Domain.Economy",
+        "Alchemist.Domain.Meta",
+        "Alchemist.Domain.Player",
+        "Alchemist.Services.Ranking",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],

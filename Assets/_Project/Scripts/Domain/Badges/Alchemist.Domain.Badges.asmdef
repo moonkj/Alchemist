@@ -1,14 +1,10 @@
 {
-    "name": "Alchemist.UI",
-    "rootNamespace": "Alchemist.UI",
+    "name": "Alchemist.Domain.Badges",
+    "rootNamespace": "Alchemist.Domain.Badges",
     "references": [
         "Alchemist.Domain.Colors",
         "Alchemist.Domain.Scoring",
-        "Alchemist.Domain.Prompts",
-        "Alchemist.Domain.Economy",
-        "Alchemist.Domain.Meta",
-        "Alchemist.Domain.Player",
-        "Unity.TextMeshPro"
+        "Alchemist.Domain.Prompts"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -18,5 +14,5 @@
     "autoReferenced": true,
     "defineConstraints": [],
     "versionDefines": [],
-    "noEngineReferences": false
+    "noEngineReferences": true
 }

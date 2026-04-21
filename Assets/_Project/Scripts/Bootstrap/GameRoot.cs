@@ -4,7 +4,9 @@ using Alchemist.Domain.Blocks;
 using Alchemist.Domain.Board;
 using Alchemist.Domain.Chain;
 using Alchemist.Domain.Colors;
+using Alchemist.Domain.Economy;
 using Alchemist.Domain.Palette;
+using Alchemist.Domain.Player;
 using Alchemist.Domain.Prompts;
 using Alchemist.Domain.Scoring;
 using Alchemist.Domain.Stages;
@@ -25,10 +27,19 @@ namespace Alchemist.Bootstrap
         [SerializeField] private UIHud _hud;
         [SerializeField] private InputController _input;
         [SerializeField] private PaletteView _paletteView;
+        [SerializeField] private InkEnergyDisplay _inkDisplay;
+        [SerializeField] private ItemButton[] _itemButtons;
 
         [Header("Stage")]
         [Tooltip("Resources/Stages/{id}.asset 경로에서 로드. 비우면 CreateDefault().")]
         [SerializeField] private string _stageId = "";
+
+        /// <summary>
+        /// 이전 씬(로비) 에서 주입된 PlayerProfile.
+        /// WHY: MetaRoot 가 PlayerProfile 를 준비해 PersistSession 으로 전달하면 게임 씬에서 재사용.
+        /// null 이면 테스트/직접 실행 경로로 간주해 임시 프로필 생성.
+        /// </summary>
+        public static PlayerProfile PendingProfile;
 
         private Board _board;
         private Score _score;
@@ -40,6 +51,9 @@ namespace Alchemist.Bootstrap
         private Palette _palette;
         private StageData _stage;
         private CancellationTokenSource _cts;
+        private PlayerProfile _profile;
+        private ItemEffectProcessor _itemFx;
+        private IClock _clock;
 
         // 하드캡(D22) — Phase 1 의 _movesLimit 과 동일 역할.
         private int _movesLimit;
@@ -50,12 +64,25 @@ namespace Alchemist.Bootstrap
         public ChainProcessor Chain => _chain;
         public Palette Palette => _palette;
         public StageData Stage => _stage;
+        public PlayerProfile Profile => _profile;
+        public ItemEffectProcessor ItemFx => _itemFx;
         public CancellationToken Ct => _cts != null ? _cts.Token : CancellationToken.None;
 
         private void Awake()
         {
             // Warm the color-mix cache once so the first mix during play has no spike.
             ColorMixCache.Lookup(ColorId.Red, ColorId.Red);
+
+            // --- Player Profile (from lobby or fallback) ---
+            _clock = new SystemClock();
+            // WHY: 로비에서 주입된 프로필 없으면 임시 생성(에디터 직접 실행/테스트 경로).
+            _profile = PendingProfile ?? new PlayerProfile(_clock);
+
+            // WHY: 스테이지 입장 1잉크 소모(요구: 게임 중 추가 소모 없음). 실패 시 기록 후 진행(프로토).
+            if (!_profile.Ink.Consume(1))
+            {
+                Debug.LogWarning("[GameRoot] Ink insufficient on stage enter; proceeding for prototype.");
+            }
 
             // --- Stage ---
             _stage = string.IsNullOrEmpty(_stageId)
@@ -92,6 +119,17 @@ namespace Alchemist.Bootstrap
             if (_paletteView != null)
             {
                 _paletteView.Bind(_palette);
+            }
+
+            // --- Economy wiring ---
+            _itemFx = new ItemEffectProcessor(_board, _profile.Inventory);
+            if (_inkDisplay != null) _inkDisplay.Bind(_profile.Ink);
+            if (_itemButtons != null)
+            {
+                for (int i = 0; i < _itemButtons.Length; i++)
+                {
+                    if (_itemButtons[i] != null) _itemButtons[i].Bind(_profile.Inventory);
+                }
             }
 
             // WHY(M1 리뷰 지적): InputController.OnSwap 을 실제로 구독해야 이동 수가 증가.

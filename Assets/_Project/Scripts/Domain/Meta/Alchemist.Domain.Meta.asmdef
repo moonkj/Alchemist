@@ -1,0 +1,7 @@
+{
+    "name": "Alchemist.Domain.Meta",
+    "rootNamespace": "Alchemist.Domain.Meta",
+    "references": [],
+    "autoReferenced": true,
+    "noEngineReferences": true
+}

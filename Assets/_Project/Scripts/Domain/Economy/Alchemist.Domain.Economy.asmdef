@@ -1,0 +1,11 @@
+{
+    "name": "Alchemist.Domain.Economy",
+    "rootNamespace": "Alchemist.Domain.Economy",
+    "references": [
+        "Alchemist.Domain.Colors",
+        "Alchemist.Domain.Blocks",
+        "Alchemist.Domain.Board"
+    ],
+    "autoReferenced": true,
+    "noEngineReferences": true
+}

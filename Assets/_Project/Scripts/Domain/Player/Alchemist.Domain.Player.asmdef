@@ -1,0 +1,10 @@
+{
+    "name": "Alchemist.Domain.Player",
+    "rootNamespace": "Alchemist.Domain.Player",
+    "references": [
+        "Alchemist.Domain.Economy",
+        "Alchemist.Domain.Meta"
+    ],
+    "autoReferenced": true,
+    "noEngineReferences": false
+}
