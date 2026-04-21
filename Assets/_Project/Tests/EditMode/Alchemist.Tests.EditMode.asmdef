@@ -1,0 +1,23 @@
+{
+    "name": "Alchemist.Tests.EditMode",
+    "rootNamespace": "Alchemist.Tests.EditMode",
+    "references": [
+        "Alchemist.Domain.Colors",
+        "Alchemist.Domain.Blocks",
+        "Alchemist.Domain.Board",
+        "Alchemist.Domain.Chain",
+        "Alchemist.Domain.Prompts",
+        "Alchemist.Domain.Scoring",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": ["Editor"],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": ["nunit.framework.dll"],
+    "autoReferenced": false,
+    "defineConstraints": ["UNITY_INCLUDE_TESTS"],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
