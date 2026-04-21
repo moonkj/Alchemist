@@ -41,6 +41,10 @@ namespace Alchemist.Domain.Chain
         private readonly GrayReleaseTracker _grayTracker;
         public GrayReleaseTracker GrayTracker => _grayTracker;
 
+        // Phase 2 Wave3: GameContext가 필터 통과 이벤트를 카운트하기 위한 콜백.
+        // WHY delegate: MessagePipe 도입 전 경량 훅.
+        public System.Action<int> OnFilterTransit;
+
         public ChainProcessor(
             Alchemist.Domain.Board.Board board,
             IChainAnimationHub anim,
@@ -285,6 +289,8 @@ namespace Alchemist.Domain.Chain
                 ColorId mixed = ColorMixCache.Lookup(b.Color, cell.FilterColor);
                 // WHY None 결과 스킵: 무효한 혼합(예: Yellow+Yellow=Yellow 아닌 미정)은 원색 유지.
                 if (mixed == ColorId.None) continue;
+
+                OnFilterTransit?.Invoke(1);
 
                 var ctx = new TransitionContext(cell.FilterColor, b.Id, 0);
                 // FSM 가능 시 transit 상태를 한 사이클 거친 뒤 Idle 복귀 — 기존 전이 테이블 재사용.

@@ -111,3 +111,27 @@ D1 Unity 2D / D2 저사양 A10·2GB / D3 보드 6×7 / D4 팔레트 3슬롯 / D5
 - Phase 2 백로그: H/M/L 잔여 이슈 + UX Q 유보 7건 (`docs/phase1_wave3_decisions.md` §2 참조)
 
 **다음 단계:** Phase 2 — 특수 블록(필터/회색/프리즘) + 팔레트 슬롯 + 프롬프트 확장
+
+---
+
+## 2026-04-21 — Phase 2 완료
+
+### 산출물
+- Domain/Chain: GrayReleaseTracker, PrismAbsorbProcessor (+ ChainProcessor filter transit)
+- Domain/Palette: Palette/PaletteSlot/IPaletteEvents (3슬롯)
+- Domain/Prompts: FilterTransit/UsePaletteSlot Condition + DailyPuzzle
+- Domain/Stages: StageData(SO) + StageLoader (D22 parMoves/maxMoves)
+- View/PaletteView, UI/LocalizerService
+- Bootstrap/GameRoot Phase 2 확장 (InputController.OnSwap 구독, OnFilterTransit 콜백)
+- Tests: 6종 추가
+
+### 아키텍트 결정 (D23~D25)
+- D23 Gray: 2회 누적 해제 (턴 리셋)
+- D24 Prism 승격은 턴 종료
+- D25 필터 벽 = 낙하 경로 색 변환만
+
+### Phase 3 이연
+- Palette→Board 적용 로직 (PlayerAction)
+- 실시간 프롬프트 UI 갱신 세부화
+
+**태그:** `v0.2.0-phase2`

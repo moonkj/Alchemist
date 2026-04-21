@@ -80,6 +80,7 @@ namespace Alchemist.Bootstrap
             {
                 _boardView.Bind(_board);
                 _chain = new ChainProcessor(_board, _boardView, _spawner, _scorer);
+                _chain.OnFilterTransit = OnFilterTransitCallback;
             }
 
             if (_hud != null)
@@ -192,6 +193,12 @@ namespace Alchemist.Bootstrap
         private void OnPaletteSlotChanged(int slotIndex)
         {
             _promptCtx.RecordPaletteSlotUse(1);
+        }
+
+        /// <summary>ChainProcessor 가 필터 셀 통과를 감지할 때 호출됨.</summary>
+        private void OnFilterTransitCallback(int count)
+        {
+            _promptCtx.RecordFilterTransit(count);
         }
     }
 }
