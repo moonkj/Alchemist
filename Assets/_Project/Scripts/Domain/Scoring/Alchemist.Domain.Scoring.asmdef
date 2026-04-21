@@ -1,0 +1,14 @@
+{
+    "name": "Alchemist.Domain.Scoring",
+    "rootNamespace": "Alchemist.Domain.Scoring",
+    "references": ["Alchemist.Domain.Colors"],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": true
+}

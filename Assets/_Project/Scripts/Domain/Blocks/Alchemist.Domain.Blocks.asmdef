@@ -1,0 +1,7 @@
+{
+    "name": "Alchemist.Domain.Blocks",
+    "rootNamespace": "Alchemist.Domain.Blocks",
+    "references": ["Alchemist.Domain.Colors"],
+    "autoReferenced": true,
+    "noEngineReferences": true
+}

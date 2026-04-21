@@ -22,17 +22,17 @@
 
 | ID | 작업 | 담당 | 상태 | 비고 |
 |----|------|------|------|------|
-| P1-01 | 색 조합 로직 설계 (Dictionary 기반) | Architect + Coder | 🟦 |  |
-| P1-02 | 블록 상태 머신 설계 | Architect + Coder | 🟦 |  |
-| P1-03 | 연쇄 처리 큐 설계 | Architect + Coder | 🟦 |  |
-| P1-04 | 3색 조합 프로토타입 구현 | Coder | 🟦 |  |
-| P1-05 | 기본 폭발 규칙 구현 | Coder | 🟦 |  |
-| P1-06 | 프롬프트 3종 구현 | Coder | 🟦 |  |
-| P1-07 | 점수 계산 구현 | Coder | 🟦 |  |
-| P1-08 | 디버깅 패스 | Debugger | 🟦 |  |
-| P1-09 | 단위/통합 테스트 | Test Engineer | 🟦 |  |
-| P1-10 | 성능/최적화 리뷰 | Performance | 🟦 |  |
-| P1-11 | 최종 코드 리뷰 | Reviewer | 🟦 |  |
+| P1-01 | 색 조합 엔진 (ColorMixer, ColorId, Cache) | Coder-1 | 🟩 | 5 files, Wave 1 |
+| P1-02 | 블록 상태 머신 (FSM, 15 전이) | Coder-2 | 🟩 | 7 files, Wave 1 |
+| P1-03 | 연쇄 처리 큐 (ChainProcessor) | Coder-Wave2 | 🟨 | Wave 2 예정 |
+| P1-04 | 보드 & View (Board POCO, BoardView Mono) | Coder-Wave2 | 🟨 | Wave 2 예정 |
+| P1-05 | 매치 탐지 & 폭발 규칙 (MatchDetector) | Coder-Wave2 | 🟨 | Wave 2 예정 |
+| P1-06 | 프롬프트 3종 (Condition/Goal/Prompt) | Coder-3 | 🟩 | 9 files, Wave 1 |
+| P1-07 | 점수 계산 (Scorer, ScoreConstants) | Coder-4 | 🟩 | 5 files, Wave 1 |
+| P1-08 | 디버깅 패스 (전 도메인) | Debugger | 🟦 | Wave 3 |
+| P1-09 | 단위/통합 테스트 (EditMode) | Test Engineer | 🟦 | Wave 3 |
+| P1-10 | 성능/최적화 리뷰 | Performance | 🟦 | Wave 3 |
+| P1-11 | 최종 코드 리뷰 | Reviewer | 🟦 | Wave 3 |
 
 ## Phase 2 — Systems (게임 시스템 확장)
 - 필터 벽 / 회색 블록 / 프리즘 블록

@@ -44,3 +44,26 @@ D1 Unity 2D / D2 저사양 A10·2GB / D3 보드 6×7 / D4 팔레트 3슬롯 / D5
 1. Unity 2D 엔진 승인 여부
 2. Phase 1 착수 범위 (전체 vs P1-01~04 핵심 4건)
 3. GitHub 리모트 연동 — 리포 URL 필요
+
+---
+
+## 2026-04-21 — Phase 1 Wave 1 완료
+
+### 유저 결정
+- 엔진: Unity 2D 승인
+- 범위: P1-01 ~ P1-11 전체
+- 리포: https://github.com/moonkj/Alchemist.git (푸시 완료, root-commit `3994e0c`)
+
+### Wave 1 산출물 (4개 Coder 병렬)
+- Coder-1 P1-01 ColorMixer: 5 files (Colors/)
+- Coder-2 P1-02 Block FSM: 7 files (Blocks/) — 15 전이 허용
+- Coder-3 P1-06 Prompts: 9 files (Prompts/) — 박싱 허용(Phase 1 한도)
+- Coder-4 P1-07 Scorer: 5 files (Scoring/) — BeginStage(par) API
+- 합계 **26 files**, 전부 Domain POCO, GC alloc 0 경로 확보
+
+### 교차레이어 결정 5건 (`docs/phase1_wave1_addendum.md`)
+- C1 Gray 표현: Kind=Gray + Color=None
+- C2 GetColorsCreated: exact match
+- C3 OnBlocksExploded(count): 블록 수 곱
+- C4 Mix 엣지: White/Black/Prism/Gray 케이스 확정
+- C5 MessagePipe: Phase 2 이연, Phase 1은 델리게이트 필드

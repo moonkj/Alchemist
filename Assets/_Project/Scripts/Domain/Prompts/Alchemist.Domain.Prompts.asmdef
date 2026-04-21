@@ -1,0 +1,7 @@
+{
+    "name": "Alchemist.Domain.Prompts",
+    "rootNamespace": "Alchemist.Domain.Prompts",
+    "references": ["Alchemist.Domain.Colors"],
+    "autoReferenced": true,
+    "noEngineReferences": true
+}
