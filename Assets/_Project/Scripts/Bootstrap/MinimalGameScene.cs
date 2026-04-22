@@ -29,12 +29,22 @@ namespace Alchemist.Bootstrap
         }
         private static readonly StageConfig[] Stages = new[]
         {
-            new StageConfig("s1", "1. 노을의 주홍", ColorId.Orange, 3, 10, 42),
-            new StageConfig("s2", "2. 여름의 초록", ColorId.Green,  4, 12, 100),
-            new StageConfig("s3", "3. 달빛 보라",  ColorId.Purple, 5, 12, 200),
-            new StageConfig("s4", "4. 깊은 숲",   ColorId.Green,  6, 14, 300),
-            new StageConfig("s5", "5. 무지개 끝", ColorId.White,  3, 16, 500),
+            // 챕터 1 — 잃어버린 노을 (따뜻한 톤)
+            new StageConfig("s1",  "1. 노을의 주홍",   ColorId.Orange, 3, 10, 42),
+            new StageConfig("s2",  "2. 여름의 초록",   ColorId.Green,  4, 12, 100),
+            new StageConfig("s3",  "3. 달빛 보라",     ColorId.Purple, 5, 12, 200),
+            new StageConfig("s4",  "4. 깊은 숲",      ColorId.Green,  6, 14, 300),
+            new StageConfig("s5",  "5. 무지개 끝",     ColorId.White,  3, 16, 500),
+            // 챕터 2 — 바다의 기억 (차가운 톤)
+            new StageConfig("s6",  "6. 수평선의 주황", ColorId.Orange, 5, 12, 1001),
+            new StageConfig("s7",  "7. 파도의 초록",   ColorId.Green,  5, 12, 1020),
+            new StageConfig("s8",  "8. 깊은 바다",    ColorId.Purple, 5, 13, 1040),
+            new StageConfig("s9",  "9. 산호초",       ColorId.Orange, 6, 13, 1060),
+            new StageConfig("s10", "10. 해무 하양",    ColorId.White,  4, 14, 1080),
+            new StageConfig("s11", "11. 폭풍우 보라",  ColorId.Purple, 7, 15, 1100),
+            new StageConfig("s12", "12. 대양의 시작",  ColorId.White,  5, 18, 1120),
         };
+        private const int Chapter1End = 5; // index 0~4
 
         // --------------- Screen state ---------------
         private enum ScreenState { Lobby, Playing, Result, Gallery, Tutorial, Settings }
@@ -67,11 +77,15 @@ namespace Alchemist.Bootstrap
         }
         private static readonly ArtworkConfig[] Artworks = new[]
         {
+            // 챕터 1 — 5 스테이지 × 3 별 = 15 조각
             new ArtworkConfig("art_sunset", "잃어버린 노을", "챕터 1 · 모든 색이 사라진 하늘",
-                fragmentCount(), new[] { 0, 1, 2, 3, 4 },
+                15, new[] { 0, 1, 2, 3, 4 },
                 new Color(1f, 0.55f, 0.25f, 1f), new Color(0.55f, 0.22f, 0.52f, 1f)),
+            // 챕터 2 — 7 스테이지 × 3 별 = 21 조각
+            new ArtworkConfig("art_sea", "바다의 기억", "챕터 2 · 파도에 휩쓸린 색들",
+                21, new[] { 5, 6, 7, 8, 9, 10, 11 },
+                new Color(0.35f, 0.72f, 0.92f, 1f), new Color(0.12f, 0.20f, 0.42f, 1f)),
         };
-        private static int fragmentCount() => 15; // 5 스테이지 × 3 (최대 별)
         private Texture2D _artworkCanvasTex;
 
         // --------------- Board state ---------------
@@ -289,6 +303,9 @@ namespace Alchemist.Bootstrap
         private bool IsStageUnlocked(int idx)
         {
             if (idx == 0) return true;
+            // 챕터 2 시작: 챕터 1 전체 클리어 필요
+            if (idx == Chapter1End) return IsChapter2Unlocked();
+            // 그 외: 직전 스테이지 클리어
             return GetStoredStars(Stages[idx - 1].Id) > 0;
         }
 
@@ -1430,27 +1447,79 @@ namespace Alchemist.Bootstrap
             }
 
             int btnW = Mathf.Min(w - 40, 420);
-            int btnH = 88;
+            int btnH = 80;
             int startY = titleY + 140;
-            int gap = 12;
+            int gap = 10;
+            int chapterHeaderH = 42;
+            int chapter2HeaderGap = 20; // 챕터 사이 여백
 
-            for (int i = 0; i < Stages.Length; i++)
+            // 스크롤 뷰 영역 — safeArea 기반
+            float bottomSafeY = Screen.height - (sa.y + sa.height);
+            int scrollBottomMargin = (int)bottomSafeY + 40;
+            int scrollRectH = Screen.height - startY - scrollBottomMargin;
+
+            // 콘텐츠 전체 높이 계산: 챕터 1 헤더 + 5 버튼 + gap + 챕터 2 헤더 + 7 버튼
+            int content1H = chapterHeaderH + Chapter1End * (btnH + gap) - gap;
+            int content2H = chapterHeaderH + (Stages.Length - Chapter1End) * (btnH + gap) - gap;
+            int totalContentH = content1H + chapter2HeaderGap + content2H + 16;
+
+            var viewRect = new Rect(0, startY, w, scrollRectH);
+            var contentRect = new Rect(0, 0, w, totalContentH);
+            _lobbyScroll = GUI.BeginScrollView(viewRect, _lobbyScroll, contentRect, false, false);
+
+            int cy = 0;
+            // 챕터 1 헤더
+            GUI.Label(new Rect(0, cy, w, chapterHeaderH), "챕터 1 · 잃어버린 노을", _heading);
+            cy += chapterHeaderH;
+            for (int i = 0; i < Chapter1End; i++)
             {
-                var s = Stages[i];
-                bool unlocked = IsStageUnlocked(i);
-                int earnedStars = GetStoredStars(s.Id);
-                var rect = new Rect((w - btnW) / 2, startY + i * (btnH + gap), btnW, btnH);
-                GUI.backgroundColor = unlocked ? new Color(1f, 1f, 1f, 1f) : new Color(1f, 1f, 1f, 0.4f);
-                string stars = "";
-                for (int k = 0; k < 3; k++) stars += (k < earnedStars) ? "★" : "☆";
-                string lockIcon = unlocked ? "" : "🔒 ";
-                string label = lockIcon + s.Title + "\n" + stars + "  목표: " + ColorLabel(s.GoalColor) + " " + s.GoalCount + "개 / " + s.MoveLimit + "턴";
-                if (GUI.Button(rect, label, _stageBtn) && unlocked)
-                {
-                    StartStage(i);
-                }
+                DrawStageButton(i, (w - btnW) / 2, cy, btnW, btnH);
+                cy += btnH + gap;
+            }
+
+            cy += chapter2HeaderGap;
+
+            // 챕터 2 헤더 — 잠금 표시
+            bool chapter2Unlocked = IsChapter2Unlocked();
+            string header2 = chapter2Unlocked
+                ? "챕터 2 · 바다의 기억"
+                : "🔒 챕터 2 · 바다의 기억 (챕터 1 클리어 필요)";
+            GUI.Label(new Rect(0, cy, w, chapterHeaderH), header2, _heading);
+            cy += chapterHeaderH;
+            for (int i = Chapter1End; i < Stages.Length; i++)
+            {
+                DrawStageButton(i, (w - btnW) / 2, cy, btnW, btnH);
+                cy += btnH + gap;
+            }
+
+            GUI.EndScrollView();
+        }
+
+        private Vector2 _lobbyScroll;
+
+        private void DrawStageButton(int i, int x, int y, int bw, int bh)
+        {
+            var s = Stages[i];
+            bool unlocked = IsStageUnlocked(i);
+            int earnedStars = GetStoredStars(s.Id);
+            var rect = new Rect(x, y, bw, bh);
+            GUI.backgroundColor = unlocked ? new Color(1f, 1f, 1f, 1f) : new Color(1f, 1f, 1f, 0.4f);
+            string stars = "";
+            for (int k = 0; k < 3; k++) stars += (k < earnedStars) ? "★" : "☆";
+            string lockIcon = unlocked ? "" : "🔒 ";
+            string label = lockIcon + s.Title + "\n" + stars + "  " + ColorLabel(s.GoalColor) + " " + s.GoalCount + "개 / " + s.MoveLimit + "턴";
+            if (GUI.Button(rect, label, _stageBtn) && unlocked)
+            {
+                StartStage(i);
             }
             GUI.backgroundColor = Color.white;
+        }
+
+        private bool IsChapter2Unlocked()
+        {
+            for (int i = 0; i < Chapter1End; i++)
+                if (GetStoredStars(Stages[i].Id) <= 0) return false;
+            return true;
         }
 
         /// <summary>
@@ -1778,52 +1847,79 @@ namespace Alchemist.Bootstrap
         private void DrawGallery()
         {
             var sa = GetSafeArea();
-            int w = Screen.width, h = Screen.height;
+            int w = Screen.width;
             int topY = (int)(sa.y + 48);
 
             GUI.Label(new Rect(0, topY, w, 52), "🎨 갤러리", _display);
 
-            // 상단 뒤로
             if (GUI.Button(new Rect(16, topY + 8, 84, 40), "◀ 뒤로", _ghostBtn))
             {
                 _screen = ScreenState.Lobby;
             }
 
-            // 챕터 1: 잃어버린 노을
-            var art = Artworks[0];
-            int titleY = topY + 80;
-            GUI.Label(new Rect(0, titleY, w, 30), art.Title, _heading);
-            GUI.Label(new Rect(0, titleY + 32, w, 20), art.Subtitle, _caption);
+            // 스크롤 뷰로 2 챕터 세로 배치
+            float bottomSafeY = Screen.height - (sa.y + sa.height);
+            int listY = topY + 70;
+            int listH = Screen.height - listY - (int)bottomSafeY - 20;
 
-            // 캔버스 영역 — 4×4 = 16 셀, 15개 조각 + 1 센터 마크
-            int unlocked = GetTotalUnlockedFragments();
-            int total = art.TotalFragments;
-            float prog = Mathf.Clamp01((float)unlocked / total);
-
-            int canvasSize = Mathf.Min(w - 40, 420);
+            int canvasSize = Mathf.Min(w - 40, 360);
             int cx = (w - canvasSize) / 2;
-            int cy = titleY + 70;
-            DrawArtworkCanvas(cx, cy, canvasSize, unlocked, total, art.TopColor, art.BottomColor);
 
-            // 진행도 바
-            int barY = cy + canvasSize + 24;
-            int barH = 22;
-            GUI.DrawTexture(new Rect(cx, barY, canvasSize, barH), _barBg);
-            Texture2D progFill = _lastArtProgTex ?? (_lastArtProgTex = MakeSolidTexture(new Color(1f, 0.72f, 0.35f, 1f)));
-            GUI.DrawTexture(new Rect(cx, barY, (int)(canvasSize * prog), barH), progFill);
-            GUI.Label(new Rect(cx, barY - 2, canvasSize, barH + 4),
-                "복원 " + unlocked + " / " + total,
-                _goalLabel);
+            // 각 챕터 섹션 높이: 제목 30 + 부제 20 + 캔버스 + 바 22 + 텍스트 24 + gap 32
+            int sectionH = 30 + 20 + canvasSize + 22 + 32 + 48;
+            int totalContentH = Artworks.Length * sectionH + 40;
 
-            // 안내
-            GUI.Label(new Rect(0, barY + 40, w, 22),
-                "스테이지 클리어 별 1개당 조각 1점 추가 복원",
-                _caption);
+            var viewRect = new Rect(0, listY, w, listH);
+            var contentRect = new Rect(0, 0, w, totalContentH);
+            _galleryScroll = GUI.BeginScrollView(viewRect, _galleryScroll, contentRect, false, false);
 
-            if (unlocked >= total)
+            int cy = 0;
+            for (int a = 0; a < Artworks.Length; a++)
             {
-                GUI.Label(new Rect(0, barY + 72, w, 28), "✨ 챕터 1 완전 복원! ✨", _goalLabel);
+                var art = Artworks[a];
+                int chUnlocked = GetArtworkFragments(art);
+                int chTotal = art.TotalFragments;
+                float prog = Mathf.Clamp01((float)chUnlocked / chTotal);
+
+                GUI.Label(new Rect(0, cy, w, 30), art.Title, _heading);
+                cy += 30;
+                GUI.Label(new Rect(0, cy, w, 20), art.Subtitle, _caption);
+                cy += 28;
+
+                DrawArtworkCanvas(cx, cy, canvasSize, chUnlocked, chTotal, art.TopColor, art.BottomColor);
+                cy += canvasSize + 20;
+
+                int barH = 20;
+                GUI.DrawTexture(new Rect(cx, cy, canvasSize, barH), _barBg);
+                var progCol = Color.Lerp(art.TopColor, art.BottomColor, 0.35f);
+                var fill = EnsureCachedSolid(progCol);
+                GUI.DrawTexture(new Rect(cx, cy, (int)(canvasSize * prog), barH), fill);
+                GUI.Label(new Rect(cx, cy - 2, canvasSize, barH + 4), "복원 " + chUnlocked + " / " + chTotal, _goalLabel);
+                cy += barH + 20;
+
+                if (chUnlocked >= chTotal)
+                {
+                    GUI.Label(new Rect(0, cy, w, 22), "✨ " + art.Title + " 완전 복원! ✨", _goalLabel);
+                }
+                cy += 40;
             }
+
+            GUI.EndScrollView();
+        }
+
+        private Vector2 _galleryScroll;
+
+        /// <summary>해당 챕터의 FeedingStages 로부터 획득한 별점 합.</summary>
+        private int GetArtworkFragments(ArtworkConfig art)
+        {
+            int sum = 0;
+            for (int i = 0; i < art.FeedingStages.Length; i++)
+            {
+                int idx = art.FeedingStages[i];
+                if (idx < 0 || idx >= Stages.Length) continue;
+                sum += GetStoredStars(Stages[idx].Id);
+            }
+            return sum;
         }
 
         private Texture2D _lastArtProgTex;
