@@ -47,8 +47,8 @@ namespace Alchemist.Bootstrap
         private const int Chapter1End = 5; // index 0~4
 
         // --------------- Screen state ---------------
-        private enum ScreenState { Lobby, Playing, Result, Gallery, Tutorial, Settings, Paused }
-        private ScreenState _screen = ScreenState.Lobby;
+        private enum ScreenState { Title, Lobby, Playing, Result, Gallery, Tutorial, Settings, Paused }
+        private ScreenState _screen = ScreenState.Title;
         private int _stageIdx;
         private StageConfig _stage;
 
@@ -165,9 +165,9 @@ namespace Alchemist.Bootstrap
             BuildPaletteSlots();
             FitCameraToBoard();
             SetupAudio();
-            SetBoardVisible(false); // 로비/튜토리얼에선 숨김
-            // 첫 실행 유저는 튜토리얼부터
-            if (!HasSeenTutorial) { _screen = ScreenState.Tutorial; _tutorialPage = 0; }
+            SetBoardVisible(false); // 타이틀/로비/튜토리얼에선 숨김
+            // 앱 시작 시 항상 타이틀 스플래시부터 (시작하기 → 튜토리얼 or 로비)
+            _screen = ScreenState.Title;
         }
 
         // --------------- Board construction ---------------
@@ -1715,6 +1715,89 @@ namespace Alchemist.Bootstrap
                 case ScreenState.Tutorial: DrawTutorial(); break;
                 case ScreenState.Settings: DrawSettings(); break;
                 case ScreenState.Paused: DrawPlayingHud(); DrawPauseOverlay(); break;
+                case ScreenState.Title: DrawTitle(); break;
+            }
+        }
+
+        /// <summary>
+        /// 타이틀 스플래시 — 앱 시작 시 나오는 첫 화면.
+        /// 저녁 하늘 그라디언트 + 반짝이는 별 5개 + RYB 물감 방울 로고 + 타이틀 + CTA.
+        /// </summary>
+        private void DrawTitle()
+        {
+            var sa = GetSafeArea();
+            int w = Screen.width, h = Screen.height;
+            float bottomSafeY = Screen.height - (sa.y + sa.height);
+
+            // 저녁 하늘 그라디언트 배경
+            GUI.DrawTexture(new Rect(0, 0, w, h), _overlayTex);
+
+            // 반짝이는 별 5개 (sin 맥동)
+            var starPositions = new[] {
+                new Vector2(w * 0.15f, h * 0.15f),
+                new Vector2(w * 0.82f, h * 0.12f),
+                new Vector2(w * 0.20f, h * 0.35f),
+                new Vector2(w * 0.85f, h * 0.40f),
+                new Vector2(w * 0.50f, h * 0.06f),
+            };
+            for (int i = 0; i < starPositions.Length; i++)
+            {
+                float pulse = 0.45f + 0.55f * Mathf.Abs(Mathf.Sin(Time.time * 2f + i * 0.8f));
+                int starSz = (int)(32 + 12 * pulse);
+                GUI.color = new Color(1f, 0.92f, 0.55f, pulse);
+                GUI.DrawTexture(new Rect(starPositions[i].x - starSz * 0.5f, starPositions[i].y - starSz * 0.5f, starSz, starSz), _iconStar);
+            }
+            GUI.color = Color.white;
+
+            // RYB 물감 방울 3개 로고 (중앙 상단)
+            int logoY = (int)(sa.y + h * 0.18f);
+            int logoSz = 84;
+            int logoGap = 20;
+            int logoW = logoSz * 3 + logoGap * 2;
+            int logoX0 = (w - logoW) / 2;
+            DrawDemoBlock(logoX0, logoY, logoSz, ColorId.Red);
+            DrawDemoBlock(logoX0 + logoSz + logoGap, logoY, logoSz, ColorId.Yellow);
+            DrawDemoBlock(logoX0 + (logoSz + logoGap) * 2, logoY, logoSz, ColorId.Blue);
+
+            // 타이틀
+            int titleY = logoY + logoSz + 40;
+            GUI.Label(new Rect(0, titleY, w, 100), "Color Mix", _display);
+            GUI.Label(new Rect(0, titleY + 100, w, 100), "Alchemist", _display);
+
+            // 서브카피
+            GUI.Label(new Rect(0, titleY + 220, w, 40), "색의 연금술사", _overlayBody);
+
+            // 시작 CTA 버튼
+            int ctaW = Mathf.Min(w - 64, 360);
+            int ctaH = 120;
+            int ctaY = h - (int)bottomSafeY - 240;
+            int ctaX = (w - ctaW) / 2;
+
+            GUI.backgroundColor = new Color(0.71f, 0.58f, 0.95f, 1f);
+            if (GUI.Button(new Rect(ctaX, ctaY, ctaW, ctaH), "시작하기", _primaryBtn))
+            {
+                if (HasSeenTutorial) _screen = ScreenState.Lobby;
+                else { _tutorialPage = 0; _screen = ScreenState.Tutorial; }
+            }
+            GUI.backgroundColor = Color.white;
+
+            // 이어하기 (튜토리얼 완료 + 진행 있을 때만)
+            if (HasSeenTutorial && GetTotalUnlockedFragments() > 0)
+            {
+                GUI.Label(new Rect(0, ctaY + ctaH + 24, w, 28), "누적 별 " + GetTotalUnlockedFragments() + " / " + (Stages.Length * 3), _caption);
+            }
+
+            // 도움말/설정 접근 (우하단)
+            float sideY = ctaY + ctaH + 72;
+            if (DrawIconButton(new Rect(w - 180, sideY, 72, 72), _iconQuestion))
+            {
+                _tutorialPage = 0;
+                _screen = ScreenState.Tutorial;
+            }
+            if (DrawIconButton(new Rect(w - 96, sideY, 72, 72), _iconGear))
+            {
+                _confirmReset = false;
+                _screen = ScreenState.Settings;
             }
         }
 
@@ -2344,9 +2427,23 @@ namespace Alchemist.Bootstrap
             var sa = GetSafeArea();
             int w = Screen.width;
             int topSafe = (int)sa.y + 8;
-            int panelH = 130;
+            int panelH = 180;
+            float bottomSafeY = Screen.height - (sa.y + sa.height);
 
-            // 상단 패널
+            // 게임 카드 프레임 — 보드 + 팔레트 영역을 감싸는 라벤더 rounded 카드
+            int cardX = 12;
+            int cardY = topSafe + panelH + 4;
+            int cardW = w - 24;
+            int cardH = Screen.height - cardY - (int)bottomSafeY - 60;
+            GUI.DrawTexture(new Rect(cardX, cardY, cardW, cardH), _panelBg);
+            // 카드 안쪽 subtle 테두리 강조
+            var frameEdge = EnsureCachedSolid(new Color(0.71f, 0.58f, 0.95f, 0.25f));
+            GUI.DrawTexture(new Rect(cardX, cardY, cardW, 3), frameEdge);
+            GUI.DrawTexture(new Rect(cardX, cardY + cardH - 3, cardW, 3), frameEdge);
+            GUI.DrawTexture(new Rect(cardX, cardY, 3, cardH), frameEdge);
+            GUI.DrawTexture(new Rect(cardX + cardW - 3, cardY, 3, cardH), frameEdge);
+
+            // 상단 패널 (카드 위에 얹히는 리본)
             GUI.DrawTexture(new Rect(0, topSafe, w, panelH), _panelBg);
             GUI.Label(new Rect(16, topSafe + 10, w - 100, 32), _stage.Title, _heading);
 
@@ -2415,8 +2512,7 @@ namespace Alchemist.Bootstrap
             // 팔레트 슬롯 오버레이 — "+" 아이콘 + 라벨 (월드→스크린 변환)
             DrawPaletteOverlay();
 
-            // 하단 힌트 (safeArea 하단 여백 확보)
-            float bottomSafeY = Screen.height - (sa.y + sa.height);
+            // 하단 힌트 (safeArea 하단 여백 확보) — bottomSafeY 이미 상단에서 계산됨
             int hintY = (int)(Screen.height - bottomSafeY - 32);
             GUI.Label(new Rect(0, hintY, w, 20), "블록을 드래그해서 섞어요 · 팔레트에 색을 저장해보세요", _caption);
         }
@@ -2514,6 +2610,22 @@ namespace Alchemist.Bootstrap
             float alphaOv = Mathf.Clamp01(_resultEnterT) * 0.82f;
             GUI.color = new Color(1f, 1f, 1f, alphaOv);
             GUI.DrawTexture(new Rect(0, 0, w, h), _overlayTex);
+            GUI.color = Color.white;
+
+            // 중앙 결과 카드 배경 — 라벤더 rounded
+            int cardW = Mathf.Min(w - 48, 420);
+            int cardH = 640;
+            int cardX = (w - cardW) / 2;
+            int cardY = (h - cardH) / 2;
+            float cardAlpha = Mathf.Clamp01((_resultEnterT - 0.10f) / 0.35f);
+            GUI.color = new Color(1f, 1f, 1f, cardAlpha);
+            GUI.DrawTexture(new Rect(cardX, cardY, cardW, cardH), _panelBg);
+            // 카드 테두리
+            var edge = EnsureCachedSolid(new Color(0.71f, 0.58f, 0.95f, 0.35f));
+            GUI.DrawTexture(new Rect(cardX, cardY, cardW, 3), edge);
+            GUI.DrawTexture(new Rect(cardX, cardY + cardH - 3, cardW, 3), edge);
+            GUI.DrawTexture(new Rect(cardX, cardY, 3, cardH), edge);
+            GUI.DrawTexture(new Rect(cardX + cardW - 3, cardY, 3, cardH), edge);
             GUI.color = Color.white;
 
             // 보드 scale fade — 결과 진입 시 보드 0.7x 로 줄어듦
