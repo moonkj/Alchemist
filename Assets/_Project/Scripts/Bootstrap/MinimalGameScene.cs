@@ -1335,40 +1335,56 @@ namespace Alchemist.Bootstrap
         private void EnsureStyles()
         {
             if (_display != null) return;
-            // 타이포 스케일 — display 40 / heading 28 / score_big 32 / body 16 / caption 12 (UX v3 #4)
-            _display = new GUIStyle(GUI.skin.label) { fontSize = 40, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
-                normal = { textColor = new Color(0.98f, 0.94f, 0.82f, 1f) } };
-            _heading = new GUIStyle(GUI.skin.label) { fontSize = 28, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
-                normal = { textColor = new Color(0.96f, 0.97f, 0.99f, 1f) } };
-            _scoreBig = new GUIStyle(GUI.skin.label) { fontSize = 32, alignment = TextAnchor.MiddleRight, fontStyle = FontStyle.Bold,
-                normal = { textColor = new Color(1f, 0.92f, 0.55f, 1f) } };
-            _goalLabel = new GUIStyle(GUI.skin.label) { fontSize = 20, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
-                normal = { textColor = new Color(0.98f, 0.94f, 0.82f, 1f) } };
-            _body = new GUIStyle(GUI.skin.label) { fontSize = 16, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
-                normal = { textColor = new Color(0.75f, 0.78f, 0.85f, 1f) } };
-            _caption = new GUIStyle(GUI.skin.label) { fontSize = 12, alignment = TextAnchor.MiddleCenter,
-                normal = { textColor = new Color(0.58f, 0.62f, 0.70f, 1f) } };
-            _overlayTitle = new GUIStyle(GUI.skin.label) { fontSize = 52, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
-                normal = { textColor = new Color(0.98f, 0.94f, 0.82f, 1f) } };
-            _overlayBody = new GUIStyle(GUI.skin.label) { fontSize = 20, alignment = TextAnchor.MiddleCenter,
-                normal = { textColor = new Color(0.85f, 0.88f, 0.93f, 1f) } };
-            _primaryBtn = new GUIStyle(GUI.skin.button) { fontSize = 22, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-            _ghostBtn = new GUIStyle(GUI.skin.button) { fontSize = 18, alignment = TextAnchor.MiddleCenter };
-            _stageBtn = new GUIStyle(GUI.skin.button) { fontSize = 18, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            // v4 타이포 — ×1.6 전면 확대 (아이/고령 친화) — 마스터: display 80 / heading 44 / scoreBig 64 / body 24 / caption 20
+            _display = new GUIStyle(GUI.skin.label) { fontSize = 80, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(1f, 0.96f, 0.85f, 1f) } };
+            _heading = new GUIStyle(GUI.skin.label) { fontSize = 44, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.98f, 0.98f, 1f, 1f) } };
+            _scoreBig = new GUIStyle(GUI.skin.label) { fontSize = 64, alignment = TextAnchor.MiddleRight, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(1f, 0.85f, 0.24f, 1f) } };
+            _goalLabel = new GUIStyle(GUI.skin.label) { fontSize = 28, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(1f, 0.96f, 0.85f, 1f) } };
+            _body = new GUIStyle(GUI.skin.label) { fontSize = 24, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(0.85f, 0.88f, 0.95f, 1f) } };
+            _caption = new GUIStyle(GUI.skin.label) { fontSize = 20, alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new Color(0.78f, 0.82f, 0.92f, 1f) } };
+            _overlayTitle = new GUIStyle(GUI.skin.label) { fontSize = 88, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
+                normal = { textColor = new Color(1f, 0.96f, 0.85f, 1f) } };
+            _overlayBody = new GUIStyle(GUI.skin.label) { fontSize = 30, alignment = TextAnchor.MiddleCenter,
+                normal = { textColor = new Color(0.90f, 0.93f, 0.98f, 1f) } };
+            _primaryBtn = new GUIStyle(GUI.skin.button) { fontSize = 34, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
+            _ghostBtn = new GUIStyle(GUI.skin.button) { fontSize = 28, alignment = TextAnchor.MiddleCenter };
+            _stageBtn = new GUIStyle(GUI.skin.button) { fontSize = 30, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
 
-            _panelBg = MakeSolidTexture(new Color(0.08f, 0.09f, 0.12f, 0.92f));
-            _barBg = MakeSolidTexture(new Color(0.20f, 0.22f, 0.28f, 1f));
-            _barFill = MakeSolidTexture(new Color(0.62f, 0.31f, 0.87f, 1f));
-            _overlayTex = MakeSolidTexture(new Color(0f, 0f, 0f, 0.82f));
-            _stageBtnBg = MakeSolidTexture(new Color(0.18f, 0.20f, 0.28f, 1f));
-            // Toast 시맨틱 컬러 (UX v3 #3) — success/warn/danger/neutral
-            _toastSuccessBg = MakeSolidTexture(new Color(0.13f, 0.77f, 0.37f, 0.95f));
-            _toastWarnBg = MakeSolidTexture(new Color(0.96f, 0.62f, 0.04f, 0.95f));
-            _toastDangerBg = MakeSolidTexture(new Color(0.94f, 0.27f, 0.27f, 0.95f));
-            _toastNeutralBg = MakeSolidTexture(new Color(0.22f, 0.24f, 0.30f, 0.95f));
-            _primaryBtnBg = MakeSolidTexture(new Color(0.62f, 0.31f, 0.87f, 1f));
-            _ghostBtnBg = MakeSolidTexture(new Color(0.16f, 0.18f, 0.24f, 0.6f));
+            // v4 마법 저녁 하늘 그라디언트 (상 #2E1A4F → 하 #6D3A6B) + 패스텔 톤 업그레이드
+            _panelBg = MakeVerticalGradient(new Color(0.16f, 0.12f, 0.28f, 0.92f), new Color(0.28f, 0.18f, 0.40f, 0.92f));
+            _barBg = MakeSolidTexture(new Color(0.28f, 0.24f, 0.38f, 1f));
+            _barFill = MakeSolidTexture(new Color(0.71f, 0.58f, 0.95f, 1f));
+            _overlayTex = MakeVerticalGradient(new Color(0.18f, 0.10f, 0.31f, 0.92f), new Color(0.43f, 0.23f, 0.42f, 0.92f));
+            _stageBtnBg = MakeSolidTexture(new Color(0.24f, 0.22f, 0.38f, 1f));
+            _toastSuccessBg = MakeSolidTexture(new Color(0.15f, 0.82f, 0.58f, 0.95f));
+            _toastWarnBg = MakeSolidTexture(new Color(1f, 0.75f, 0.24f, 0.95f));
+            _toastDangerBg = MakeSolidTexture(new Color(0.98f, 0.36f, 0.45f, 0.95f));
+            _toastNeutralBg = MakeSolidTexture(new Color(0.32f, 0.28f, 0.48f, 0.95f));
+            _primaryBtnBg = MakeSolidTexture(new Color(0.71f, 0.58f, 0.95f, 1f));
+            _ghostBtnBg = MakeSolidTexture(new Color(0.24f, 0.22f, 0.38f, 0.7f));
             _dimOverlay = MakeSolidTexture(new Color(0f, 0f, 0f, 0.35f));
+        }
+
+        private static Texture2D MakeVerticalGradient(Color top, Color bottom)
+        {
+            int h = 64;
+            var tex = new Texture2D(1, h, TextureFormat.RGBA32, false);
+            for (int i = 0; i < h; i++)
+            {
+                float t = 1f - (i / (float)(h - 1));
+                var c = Color.Lerp(bottom, top, t);
+                tex.SetPixel(0, i, c);
+            }
+            tex.wrapMode = TextureWrapMode.Clamp;
+            tex.filterMode = FilterMode.Bilinear;
+            tex.Apply();
+            return tex;
         }
 
         /// <summary>Safe area 대응 (노치/다이나믹 아일랜드/홈 인디케이터).</summary>
