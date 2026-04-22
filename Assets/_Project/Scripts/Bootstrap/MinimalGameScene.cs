@@ -234,7 +234,7 @@ namespace Alchemist.Bootstrap
                 go.transform.parent = transform;
                 var sr = go.AddComponent<SpriteRenderer>();
                 sr.sprite = _squareSprite;
-                sr.color = new Color(0.22f, 0.24f, 0.30f, 0.55f);
+                sr.color = new Color(0.56f, 0.48f, 0.85f, 0.28f);
                 sr.sortingOrder = 2;
                 _paletteSprites[i] = sr;
                 _paletteColors[i] = ColorId.None;
@@ -250,7 +250,7 @@ namespace Alchemist.Bootstrap
             for (int i = 0; i < PaletteCount; i++)
             {
                 _paletteColors[i] = ColorId.None;
-                _paletteSprites[i].color = new Color(0.22f, 0.24f, 0.30f, 0.55f);
+                _paletteSprites[i].color = new Color(0.56f, 0.48f, 0.85f, 0.28f);
                 _paletteSprites[i].transform.position = _palettePos[i];
                 _paletteSprites[i].transform.localScale = Vector3.one * (CellSize * 0.85f);
                 _paletteSprites[i].transform.rotation = Quaternion.identity;
@@ -547,7 +547,7 @@ namespace Alchemist.Bootstrap
             // 혼합 적용
             _colorGrid[tr, tc] = mixed;
             _paletteColors[slotIdx] = ColorId.None;
-            _paletteSprites[slotIdx].color = new Color(0.22f, 0.24f, 0.30f, 0.55f);
+            _paletteSprites[slotIdx].color = new Color(0.56f, 0.48f, 0.85f, 0.28f);
             SnapBackSlot(slotIdx);
 
             // 타깃 물감 흐름 애니 (기존 MixPaintFlow 재활용 — 소스 셀은 존재하지 않으므로
@@ -1432,24 +1432,26 @@ namespace Alchemist.Bootstrap
             GUI.Label(new Rect(0, titleY, w, 56), "Color Mix: Alchemist", _display);
             GUI.Label(new Rect(0, titleY + 64, w, 22), "색을 설계하고 폭발시켜 세상을 복원하라", _overlayBody);
 
-            // 우상단 갤러리 버튼 (M4)
+            // 우상단 갤러리 버튼 (M4) — 크게
             int totalFrag = GetTotalUnlockedFragments();
             int maxFrag = Stages.Length * 3;
-            var galleryRect = new Rect(w - 140, titleY - 16, 128, 44);
-            if (GUI.Button(galleryRect, "🎨 갤러리 " + totalFrag + "/" + maxFrag, _ghostBtn))
+            var galleryRect = new Rect(w - 176, titleY - 20, 160, 56);
+            var galleryStyle = new GUIStyle(_ghostBtn) { fontSize = 18, fontStyle = FontStyle.Bold };
+            if (GUI.Button(galleryRect, "🎨 " + totalFrag + "/" + maxFrag, galleryStyle))
             {
                 _screen = ScreenState.Gallery;
             }
 
-            // 좌상단 도움말 + 설정 버튼
-            var helpRect = new Rect(16, titleY - 16, 52, 44);
-            if (GUI.Button(helpRect, "?", _ghostBtn))
+            // 좌상단 도움말 + 설정 버튼 (큰 터치 타깃)
+            var lobbyIconStyle = new GUIStyle(_ghostBtn) { fontSize = 24, fontStyle = FontStyle.Bold };
+            var helpRect = new Rect(16, titleY - 20, 64, 56);
+            if (GUI.Button(helpRect, "❓", lobbyIconStyle))
             {
                 _tutorialPage = 0;
                 _screen = ScreenState.Tutorial;
             }
-            var settingsRect = new Rect(72, titleY - 16, 52, 44);
-            if (GUI.Button(settingsRect, "⚙", _ghostBtn))
+            var settingsRect = new Rect(86, titleY - 20, 64, 56);
+            if (GUI.Button(settingsRect, "⚙", lobbyIconStyle))
             {
                 _confirmReset = false;
                 _screen = ScreenState.Settings;
@@ -1888,7 +1890,7 @@ namespace Alchemist.Bootstrap
         private void DrawPaletteDemo(int x, int y, int sz, ColorId color)
         {
             var bgTex = (color == ColorId.None)
-                ? EnsureCachedSolid(new Color(0.22f, 0.24f, 0.30f, 0.55f))
+                ? EnsureCachedSolid(new Color(0.56f, 0.48f, 0.85f, 0.28f))
                 : EnsureCachedSolid(ColorToUnity(color));
             GUI.DrawTexture(new Rect(x, y, sz, sz), bgTex);
         }
@@ -2035,12 +2037,13 @@ namespace Alchemist.Bootstrap
             GUI.DrawTexture(new Rect(0, topSafe, w, panelH), _panelBg);
             GUI.Label(new Rect(16, topSafe + 10, w - 100, 32), _stage.Title, _heading);
 
-            // 우상단: 일시정지 + 로비
-            if (GUI.Button(new Rect(w - 166, topSafe + 10, 72, 32), "⏸", _ghostBtn))
+            // 우상단: 일시정지 + 로비 (큰 터치 타깃)
+            var bigBtnStyle = new GUIStyle(_ghostBtn) { fontSize = 22, fontStyle = FontStyle.Bold };
+            if (GUI.Button(new Rect(w - 180, topSafe + 10, 80, 48), "⏸", bigBtnStyle))
             {
                 if (_screen == ScreenState.Playing) _screen = ScreenState.Paused;
             }
-            if (GUI.Button(new Rect(w - 88, topSafe + 10, 72, 32), "로비", _ghostBtn))
+            if (GUI.Button(new Rect(w - 92, topSafe + 10, 80, 48), "🏠", bigBtnStyle))
             {
                 ExitToLobby();
             }
@@ -2062,19 +2065,22 @@ namespace Alchemist.Bootstrap
             string goalText = ColorLabel(_stage.GoalColor) + "  " + _goalProgress + " / " + _stage.GoalCount;
             GUI.Label(new Rect(barX, barY - 2, barW, barH + 4), goalText, _goalLabel);
 
-            // 하단 정보 행: 턴(좌) + 점수(우) — scoreBig 스타일로 성취감
+            // 하단 정보 행: 턴(좌) + 점수(우) — 이모지 + 큰 숫자로 성취감
             int infoY = topSafe + 88;
-            GUI.Label(new Rect(16, infoY, 260, 34), "턴 " + _moves + " / " + _stage.MoveLimit, _body);
-            GUI.Label(new Rect(w - 240 - 16, infoY - 4, 240, 40), _displayedScore.ToString("N0"), _scoreBig);
+            GUI.Label(new Rect(16, infoY, 260, 34), "⏱ " + _moves + " / " + _stage.MoveLimit, _body);
+            GUI.Label(new Rect(w - 280 - 16, infoY - 6, 280, 44), "🏆 " + _displayedScore.ToString("N0"), _scoreBig);
 
             // WHY(유저 피드백): '합쳐질 때 화면 왜 어두워짐' — 일반 믹스에도 dim 이 뜨는 것이
             //                   원인. 이제 chain depth ≥ 2 실제 연쇄 구간에만 아주 짧게 보이게.
             // 단일 mix(비연쇄) 에선 아예 표시 안 함.
 
+            // 팔레트 슬롯 오버레이 — "+" 아이콘 + 라벨 (월드→스크린 변환)
+            DrawPaletteOverlay();
+
             // 하단 힌트 (safeArea 하단 여백 확보)
             float bottomSafeY = Screen.height - (sa.y + sa.height);
             int hintY = (int)(Screen.height - bottomSafeY - 32);
-            GUI.Label(new Rect(0, hintY, w, 20), "블록 드래그로 혼합 · 팔레트 슬롯으로 저장/꺼내기", _caption);
+            GUI.Label(new Rect(0, hintY, w, 20), "블록을 드래그해서 섞어요 · 🎨 팔레트에 색을 저장해보세요", _caption);
         }
 
         /// <summary>진행 바를 목표 색으로 지연 교체.</summary>
@@ -2084,6 +2090,53 @@ namespace Alchemist.Bootstrap
             if (_barFill != null) Destroy(_barFill);
             _barFill = MakeSolidTexture(ColorToUnity(goal));
             _lastBarColor = goal;
+        }
+
+        /// <summary>팔레트 슬롯 위에 "🎨 팔레트" 헤더 + 빈 슬롯 "+" 아이콘 렌더.</summary>
+        private void DrawPaletteOverlay()
+        {
+            if (_paletteSprites == null || _palettePos == null) return;
+            var cam = Camera.main;
+            if (cam == null) return;
+
+            // 헤더 — 슬롯들의 x 평균 + 위쪽 오프셋
+            Vector3 firstW = _palettePos[0];
+            Vector3 lastW = _palettePos[PaletteCount - 1];
+            Vector3 centerW = (firstW + lastW) * 0.5f + Vector3.up * (CellSize * 0.85f);
+            Vector3 headerS = cam.WorldToScreenPoint(centerW);
+            float screenYFlip = Screen.height - headerS.y;
+            var headerRect = new Rect(headerS.x - 120, screenYFlip - 22, 240, 28);
+            GUI.Label(headerRect, "🎨 팔레트", _goalLabel);
+
+            // 각 슬롯 위 라벨
+            for (int i = 0; i < PaletteCount; i++)
+            {
+                Vector3 s = cam.WorldToScreenPoint(_palettePos[i]);
+                float sy = Screen.height - s.y;
+                bool empty = _paletteColors[i] == ColorId.None;
+                if (empty)
+                {
+                    // 펄스 "+" 아이콘
+                    float pulse = 1f + Mathf.Sin(Time.time * 3f + i * 0.7f) * 0.08f;
+                    var plusStyle = new GUIStyle(_overlayTitle)
+                    {
+                        fontSize = (int)(44 * pulse),
+                        alignment = TextAnchor.MiddleCenter,
+                        normal = { textColor = new Color(0.70f, 0.58f, 0.95f, 0.9f) }
+                    };
+                    GUI.Label(new Rect(s.x - 40, sy - 40, 80, 80), "+", plusStyle);
+                }
+                else
+                {
+                    // 저장된 색 하단에 작은 탭 힌트
+                    var tagStyle = new GUIStyle(_caption)
+                    {
+                        alignment = TextAnchor.MiddleCenter,
+                        normal = { textColor = new Color(0.95f, 0.95f, 0.95f, 0.85f) }
+                    };
+                    GUI.Label(new Rect(s.x - 50, sy + 32, 100, 18), "꺼내기 ↑", tagStyle);
+                }
+            }
         }
 
         private void DrawToast()
