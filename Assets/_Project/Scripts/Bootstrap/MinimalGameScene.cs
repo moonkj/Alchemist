@@ -37,10 +37,16 @@ namespace Alchemist.Bootstrap
         };
 
         // --------------- Screen state ---------------
-        private enum ScreenState { Lobby, Playing, Result, Gallery }
+        private enum ScreenState { Lobby, Playing, Result, Gallery, Tutorial }
         private ScreenState _screen = ScreenState.Lobby;
         private int _stageIdx;
         private StageConfig _stage;
+
+        // --------------- Tutorial ---------------
+        private int _tutorialPage;
+        private const int TutorialPages = 3;
+        private static bool HasSeenTutorial => PlayerPrefs.GetInt("alchemist.tut_done", 0) == 1;
+        private static void MarkTutorialDone() { PlayerPrefs.SetInt("alchemist.tut_done", 1); PlayerPrefs.Save(); }
 
         // --------------- Gallery catalog (M4) ---------------
         /// <summary>Chapter → 총 조각 수. 스테이지 클리어 시 별×1 = 조각 1 적립.</summary>
@@ -933,70 +939,81 @@ namespace Alchemist.Bootstrap
         }
 
         /// <summary>
-        /// 물감 흐름 연출: 소스 블록이 타깃으로 흘러들어가며 녹고, 타깃은 부드럽게 pulse 하며
-        /// 색이 블렌드. 딱딱한 squash 대신 유체 느낌의 soft-pulse.
+        /// 물감 흐름 연출: 별도 ghost 스프라이트가 소스→타깃으로 slide.
+        /// WHY: 이전엔 소스 블록 SpriteRenderer 를 직접 움직여 gravity 코루틴과
+        ///      충돌 → 낙하 블록이 회색/검정으로 변하는 버그 발생. ghost 분리로 해소.
         /// </summary>
         private IEnumerator MixPaintFlow(int srcR, int srcC, int tr, int tc,
             ColorId sourceColor, ColorId fromTarget, ColorId toColor)
         {
             if (tr < 0 || tc < 0) yield break;
 
+            // 소스 블록은 즉시 None 시각화 (gravity 가 바로 인수 가능)
             var srcSr = _blocks[srcR, srcC];
-            var srcT = srcSr.transform;
-            Vector3 srcStart = srcT.position;
-            Vector3 targetPos = _basePos[tr, tc];
-            Vector3 srcStartScale = srcT.localScale;
-            Color srcOrigColor = ColorToUnity(sourceColor);
-            srcSr.color = srcOrigColor;
+            srcSr.color = ColorToUnity(ColorId.None);
+            srcSr.transform.position = _basePos[srcR, srcC];
+            srcSr.transform.localScale = Vector3.one * CellSize;
+            srcSr.transform.rotation = Quaternion.identity;
 
-            // Phase 1: 소스가 타깃으로 흘러들어감 — 위치·크기·알파 EaseInQuad, 미세 stretch
-            float p1 = 0.22f, e1 = 0f;
+            // Ghost 스프라이트 생성 — 소스 색을 타깃으로 부드럽게 흘려보냄
+            var ghost = new GameObject("MixGhost");
+            var gsr = ghost.AddComponent<SpriteRenderer>();
+            gsr.sprite = _squareSprite;
+            Color srcCol = ColorToUnity(sourceColor);
+            gsr.color = srcCol;
+            gsr.sortingOrder = 20;
+            ghost.transform.position = _basePos[srcR, srcC];
+            ghost.transform.localScale = Vector3.one * (CellSize * 0.98f);
+
+            Vector3 start = _basePos[srcR, srcC];
+            Vector3 targetPos = _basePos[tr, tc];
+
+            // Phase 1: ghost 가 타깃으로 흘러들어감 (0.24s, SmoothStep)
+            float p1 = 0.24f, e1 = 0f;
             while (e1 < p1)
             {
                 float u = e1 / p1;
-                float ease = u * u;
-                srcT.position = Vector3.Lerp(srcStart, targetPos, ease);
-                float shrink = Mathf.Lerp(1f, 0.35f, ease);
-                srcT.localScale = new Vector3(CellSize * shrink, CellSize * shrink, CellSize);
-                var c = srcOrigColor; c.a = 1f - ease; srcSr.color = c;
+                float ease = Mathf.SmoothStep(0f, 1f, u);
+                ghost.transform.position = Vector3.Lerp(start, targetPos, ease);
+                float shrink = Mathf.Lerp(0.98f, 0.35f, ease);
+                ghost.transform.localScale = Vector3.one * (CellSize * shrink);
+                var c = srcCol; c.a = 1f - ease * ease; gsr.color = c;
                 e1 += Time.deltaTime;
                 yield return null;
             }
-            // 소스 정리 — None 셀로 복귀
-            srcT.position = _basePos[srcR, srcC];
-            srcT.localScale = Vector3.one * CellSize;
-            var noneCol = ColorToUnity(ColorId.None);
-            srcSr.color = noneCol;
+            Destroy(ghost);
 
-            // Phase 2: 타깃이 부드럽게 pulse 하며 색 블렌드 (soft, 딱딱하지 않음)
+            // Phase 2: 타깃이 부드럽게 pulse 하며 색 블렌드 (매우 soft)
             _bouncing[tr, tc] = true;
             var tSr = _blocks[tr, tc];
             var tT = tSr.transform;
             Color fromC = ColorToUnity(fromTarget);
             Color toC = ColorToUnity(toColor);
 
-            float p2 = 0.32f, e2 = 0f;
+            // 펄스를 1.10 으로 축소 (이전 1.18 → 더 부드럽게), sin 이아닌 ease curve 사용
+            float p2 = 0.36f, e2 = 0f;
             while (e2 < p2)
             {
                 float u = e2 / p2;
-                // sin 펄스: 0 → 0.18(peak) → 0 (수평/수직 동일, 등방 — 딱딱한 축변형 X)
-                float pulse = Mathf.Sin(u * Mathf.PI) * 0.18f;
+                // 부드러운 상승-하강: t < 0.4 에서 상승, 이후 하강
+                float pulse;
+                if (u < 0.4f) pulse = Mathf.Sin((u / 0.4f) * Mathf.PI * 0.5f) * 0.10f; // ease-out 상승
+                else pulse = Mathf.Cos(((u - 0.4f) / 0.6f) * Mathf.PI * 0.5f) * 0.10f; // ease-out 하강
                 float s = 1f + pulse;
                 tT.localScale = new Vector3(CellSize * s, CellSize * s, CellSize);
-                // 색은 smoothstep 보간 — 물감이 퍼지듯
                 float cu = Mathf.SmoothStep(0f, 1f, u);
                 tSr.color = Color.Lerp(fromC, toC, cu);
                 e2 += Time.deltaTime;
                 yield return null;
             }
 
-            // Phase 3: 작은 잔향 (±2% sin, 4Hz, 0.18s) — 미세 출렁임
-            float p3 = 0.18f, e3 = 0f;
+            // Phase 3: 매우 작은 잔향 (±1% sin, 3Hz, 0.15s) — 딱딱한 기색 완전 제거
+            float p3 = 0.15f, e3 = 0f;
             while (e3 < p3)
             {
                 float u = e3 / p3;
-                float decay = (1f - u) * (1f - u);
-                float osc = Mathf.Sin(e3 * 2f * Mathf.PI * 4f) * 0.020f * decay;
+                float decay = (1f - u);
+                float osc = Mathf.Sin(e3 * 2f * Mathf.PI * 3f) * 0.010f * decay;
                 tT.localScale = new Vector3(CellSize * (1f + osc), CellSize * (1f - osc), CellSize);
                 e3 += Time.deltaTime;
                 yield return null;
