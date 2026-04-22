@@ -723,6 +723,9 @@ namespace Alchemist.Bootstrap
                     ShowToast("챕터 1 완주! 다음 챕터 해금", ToastKind.Success);
                 else
                     ShowToast("STAGE CLEAR! +" + (200 * _stars), ToastKind.Success);
+
+                // 축하 confetti — 상단에서 하강하는 색 파편 24개
+                StartCoroutine(SpawnConfetti(24, 3.0f));
                 _resultEnterT = 0f;
                 for (int i = 0; i < _starLit.Length; i++) _starLit[i] = 0f;
                 PlaySfx(_sfxClear);
@@ -1146,6 +1149,64 @@ namespace Alchemist.Bootstrap
             }
             Destroy(go);
         }
+        /// <summary>결과 카드 축하 confetti — 상단 랜덤 위치에서 랜덤 색으로 하강.</summary>
+        private IEnumerator SpawnConfetti(int count, float totalDur)
+        {
+            var cam = Camera.main;
+            if (cam == null) yield break;
+            float halfW = cam.orthographicSize * cam.aspect;
+            float topY = cam.transform.position.y + cam.orthographicSize + 0.5f;
+            var colors = new[]
+            {
+                new Color(0.90f, 0.22f, 0.27f, 1f),
+                new Color(0.97f, 0.83f, 0.30f, 1f),
+                new Color(0.28f, 0.58f, 0.94f, 1f),
+                new Color(0.96f, 0.64f, 0.38f, 1f),
+                new Color(0.32f, 0.72f, 0.53f, 1f),
+                new Color(0.62f, 0.31f, 0.87f, 1f),
+            };
+            for (int i = 0; i < count; i++)
+            {
+                var go = new GameObject("Confetti");
+                var sr = go.AddComponent<SpriteRenderer>();
+                sr.sprite = _squareSprite;
+                sr.color = colors[Random.Range(0, colors.Length)];
+                sr.sortingOrder = 80;
+                float startX = Random.Range(-halfW * 0.85f, halfW * 0.85f);
+                go.transform.position = new Vector3(startX, topY, 0f);
+                float s = Random.Range(0.18f, 0.34f);
+                go.transform.localScale = Vector3.one * s;
+                float vx = Random.Range(-1.5f, 1.5f);
+                float vy = Random.Range(-3.5f, -2.0f);
+                float spin = Random.Range(-240f, 240f);
+                float delay = i * (totalDur * 0.25f / count);
+                StartCoroutine(ConfettiMotion(go, new Vector2(vx, vy), spin, 2.2f, delay));
+            }
+            yield break;
+        }
+
+        private IEnumerator ConfettiMotion(GameObject go, Vector2 vel, float spin, float life, float delay)
+        {
+            if (go == null) yield break;
+            var sr = go.GetComponent<SpriteRenderer>();
+            if (delay > 0) { sr.enabled = false; yield return new WaitForSeconds(delay); }
+            sr.enabled = true;
+            float t = 0f;
+            Vector3 pos = go.transform.position;
+            while (t < life && go != null)
+            {
+                float u = t / life;
+                vel.y += -4.5f * Time.deltaTime;
+                pos += (Vector3)(vel * Time.deltaTime);
+                go.transform.position = pos;
+                go.transform.Rotate(0f, 0f, spin * Time.deltaTime);
+                var c = sr.color; c.a = 1f - u * u; sr.color = c;
+                t += Time.deltaTime;
+                yield return null;
+            }
+            if (go != null) Destroy(go);
+        }
+
         private IEnumerator ScreenShake(float duration, float magnitude)
         {
             var cam = Camera.main;
@@ -1332,10 +1393,31 @@ namespace Alchemist.Bootstrap
         }
 
         // --------------- GUI ---------------
+        private Font _uiFont;
+
+        /// <summary>iOS/Android OS 에서 한글 지원 폰트 로드. Unity 기본 폰트는 일부 한글 미포함.</summary>
+        private void EnsureUiFont()
+        {
+            if (_uiFont != null) return;
+            var candidates = new[]
+            {
+                "Apple SD Gothic Neo",
+                "AppleSDGothicNeo",
+                "AppleSDGothicNeo-Regular",
+                "AppleSDGothicNeo-Medium",
+                "NotoSansKR-Regular",
+                "MalgunGothic",
+                "Helvetica",
+                "Arial",
+            };
+            _uiFont = Font.CreateDynamicFontFromOSFont(candidates, 48);
+        }
+
         private void EnsureStyles()
         {
             if (_display != null) return;
             EnsureIcons();
+            EnsureUiFont();
             // v4 타이포 — ×1.6 전면 확대 (아이/고령 친화) — 마스터: display 80 / heading 44 / scoreBig 64 / body 24 / caption 20
             _display = new GUIStyle(GUI.skin.label) { fontSize = 80, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(1f, 0.96f, 0.85f, 1f) } };
@@ -1370,6 +1452,22 @@ namespace Alchemist.Bootstrap
             _primaryBtnBg = MakeSolidTexture(new Color(0.71f, 0.58f, 0.95f, 1f));
             _ghostBtnBg = MakeSolidTexture(new Color(0.24f, 0.22f, 0.38f, 0.7f));
             _dimOverlay = MakeSolidTexture(new Color(0f, 0f, 0f, 0.35f));
+
+            // 모든 스타일에 한글 지원 OS 폰트 적용
+            if (_uiFont != null)
+            {
+                _display.font = _uiFont;
+                _heading.font = _uiFont;
+                _scoreBig.font = _uiFont;
+                _goalLabel.font = _uiFont;
+                _body.font = _uiFont;
+                _caption.font = _uiFont;
+                _overlayTitle.font = _uiFont;
+                _overlayBody.font = _uiFont;
+                _primaryBtn.font = _uiFont;
+                _ghostBtn.font = _uiFont;
+                _stageBtn.font = _uiFont;
+            }
         }
 
         private static Texture2D MakeVerticalGradient(Color top, Color bottom)
@@ -1856,8 +1954,9 @@ namespace Alchemist.Bootstrap
             _lobbyScroll = GUI.BeginScrollView(viewRect, _lobbyScroll, contentRect, false, false);
 
             int cy = 0;
-            // 챕터 1 헤더
-            GUI.Label(new Rect(0, cy, w, chapterHeaderH), "챕터 1 · 잃어버린 노을", _heading);
+            // 챕터 1 카드형 헤더
+            DrawChapterHeader(cy, w, chapterHeaderH, "챕터 1", "잃어버린 노을",
+                new Color(0.95f, 0.55f, 0.35f, 1f), new Color(0.65f, 0.30f, 0.55f, 1f), true);
             cy += chapterHeaderH;
             for (int i = 0; i < Chapter1End; i++)
             {
@@ -1867,12 +1966,10 @@ namespace Alchemist.Bootstrap
 
             cy += chapter2HeaderGap;
 
-            // 챕터 2 헤더 — 잠금 표시
+            // 챕터 2 카드형 헤더 — 잠금 표시
             bool chapter2Unlocked = IsChapter2Unlocked();
-            string header2 = chapter2Unlocked
-                ? "챕터 2 · 바다의 기억"
-                : "[잠금] 챕터 2 · 바다의 기억 (챕터 1 클리어 필요)";
-            GUI.Label(new Rect(0, cy, w, chapterHeaderH), header2, _heading);
+            DrawChapterHeader(cy, w, chapterHeaderH, "챕터 2", "바다의 기억",
+                new Color(0.35f, 0.72f, 0.92f, 1f), new Color(0.12f, 0.20f, 0.42f, 1f), chapter2Unlocked);
             cy += chapterHeaderH;
             for (int i = Chapter1End; i < Stages.Length; i++)
             {
@@ -1881,6 +1978,38 @@ namespace Alchemist.Bootstrap
             }
 
             GUI.EndScrollView();
+        }
+
+        /// <summary>로비 챕터 헤더 — 그라디언트 배경 + 라벨 + 잠금 표시.</summary>
+        private void DrawChapterHeader(int y, int w, int h, string chapNum, string chapTitle, Color topC, Color botC, bool unlocked)
+        {
+            int margin = 20;
+            var rect = new Rect(margin, y + 6, w - margin * 2, h - 12);
+
+            // 그라디언트 배경 (두 색의 수직 블렌드)
+            var topTex = EnsureCachedSolid(new Color(topC.r, topC.g, topC.b, unlocked ? 0.85f : 0.30f));
+            var botTex = EnsureCachedSolid(new Color(botC.r, botC.g, botC.b, unlocked ? 0.85f : 0.30f));
+            int half = (int)(rect.height * 0.5f);
+            GUI.DrawTexture(new Rect(rect.x, rect.y, rect.width, half), topTex);
+            GUI.DrawTexture(new Rect(rect.x, rect.y + half, rect.width, rect.height - half), botTex);
+
+            // 좌측 챕터 번호
+            var numStyle = new GUIStyle(_display) { fontSize = 40, alignment = TextAnchor.MiddleLeft,
+                normal = { textColor = unlocked ? new Color(1f, 0.95f, 0.82f, 1f) : new Color(1f, 1f, 1f, 0.4f) } };
+            GUI.Label(new Rect(rect.x + 20, rect.y, 140, rect.height), chapNum, numStyle);
+
+            // 챕터 제목
+            var titleStyle = new GUIStyle(_heading) { fontSize = 34, alignment = TextAnchor.MiddleLeft,
+                normal = { textColor = unlocked ? new Color(1f, 1f, 1f, 1f) : new Color(1f, 1f, 1f, 0.4f) } };
+            GUI.Label(new Rect(rect.x + 170, rect.y, rect.width - 220, rect.height), chapTitle, titleStyle);
+
+            if (!unlocked)
+            {
+                // 잠금 오버레이
+                var lockStyle = new GUIStyle(_body) { fontSize = 22, alignment = TextAnchor.MiddleRight,
+                    normal = { textColor = new Color(1f, 0.85f, 0.85f, 0.9f) } };
+                GUI.Label(new Rect(rect.x, rect.y, rect.width - 20, rect.height), "[잠금]", lockStyle);
+            }
         }
 
         private Vector2 _lobbyScroll;
@@ -2430,18 +2559,16 @@ namespace Alchemist.Bootstrap
             int panelH = 180;
             float bottomSafeY = Screen.height - (sa.y + sa.height);
 
-            // 게임 카드 프레임 — 보드 + 팔레트 영역을 감싸는 라벤더 rounded 카드
+            // 게임 카드 프레임 — 테두리만 그려 블록 완전 가시성 보장 (유저 피드백: 화면 보라색으로 덮임)
             int cardX = 12;
             int cardY = topSafe + panelH + 4;
             int cardW = w - 24;
             int cardH = Screen.height - cardY - (int)bottomSafeY - 60;
-            GUI.DrawTexture(new Rect(cardX, cardY, cardW, cardH), _panelBg);
-            // 카드 안쪽 subtle 테두리 강조
-            var frameEdge = EnsureCachedSolid(new Color(0.71f, 0.58f, 0.95f, 0.25f));
-            GUI.DrawTexture(new Rect(cardX, cardY, cardW, 3), frameEdge);
-            GUI.DrawTexture(new Rect(cardX, cardY + cardH - 3, cardW, 3), frameEdge);
-            GUI.DrawTexture(new Rect(cardX, cardY, 3, cardH), frameEdge);
-            GUI.DrawTexture(new Rect(cardX + cardW - 3, cardY, 3, cardH), frameEdge);
+            var frameEdge = EnsureCachedSolid(new Color(0.71f, 0.58f, 0.95f, 0.75f));
+            GUI.DrawTexture(new Rect(cardX, cardY, cardW, 4), frameEdge);
+            GUI.DrawTexture(new Rect(cardX, cardY + cardH - 4, cardW, 4), frameEdge);
+            GUI.DrawTexture(new Rect(cardX, cardY, 4, cardH), frameEdge);
+            GUI.DrawTexture(new Rect(cardX + cardW - 4, cardY, 4, cardH), frameEdge);
 
             // 상단 패널 (카드 위에 얹히는 리본)
             GUI.DrawTexture(new Rect(0, topSafe, w, panelH), _panelBg);
