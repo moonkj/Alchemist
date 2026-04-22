@@ -710,7 +710,7 @@ namespace Alchemist.Bootstrap
                 _stageCleared = true;
                 int remaining = _stage.MoveLimit - _moves;
                 if (remaining >= _stage.MoveLimit / 2) _stars = 3;
-                else if (remaining >= 2) _stars = 2;
+                else if (remaining >= Mathf.Max(2, _stage.MoveLimit / 4)) _stars = 2;
                 else _stars = 1;
                 _score += 200 * _stars;
                 bool wasBelowThresh = !WasChapter1Complete();
@@ -1518,12 +1518,31 @@ namespace Alchemist.Bootstrap
             string stars = "";
             for (int k = 0; k < 3; k++) stars += (k < earnedStars) ? "★" : "☆";
             string lockIcon = unlocked ? "" : "🔒 ";
-            string label = lockIcon + s.Title + "\n" + stars + "  " + ColorLabel(s.GoalColor) + " " + s.GoalCount + "개 / " + s.MoveLimit + "턴";
+            int star3 = s.MoveLimit / 2;
+            int star2 = s.MoveLimit - Mathf.Max(2, s.MoveLimit / 4);
+            string label = lockIcon + s.Title + "\n" + stars + "  " + ColorLabel(s.GoalColor) + " " + s.GoalCount + "개 / " + s.MoveLimit + "턴 · ★★★ " + star3 + "턴 이내";
             if (GUI.Button(rect, label, _stageBtn) && unlocked)
             {
                 StartStage(i);
             }
             GUI.backgroundColor = Color.white;
+        }
+
+        /// <summary>현재 _moves 기준 예상 별 수 (1/2/3).</summary>
+        private int ProjectStarsForCurrentMoves()
+        {
+            if (_stage == null) return 0;
+            int remaining = _stage.MoveLimit - _moves;
+            if (remaining >= _stage.MoveLimit / 2) return 3;
+            if (remaining >= Mathf.Max(2, _stage.MoveLimit / 4)) return 2;
+            return 1;
+        }
+
+        private static string BuildStarPreview(int count)
+        {
+            string s = "";
+            for (int i = 0; i < 3; i++) s += i < count ? "★" : "☆";
+            return s;
         }
 
         private bool IsChapter2Unlocked()
@@ -2070,6 +2089,27 @@ namespace Alchemist.Bootstrap
             GUI.Label(new Rect(16, infoY, 260, 34), "⏱ " + _moves + " / " + _stage.MoveLimit, _body);
             GUI.Label(new Rect(w - 280 - 16, infoY - 6, 280, 44), "🏆 " + _displayedScore.ToString("N0"), _scoreBig);
 
+            // 별 획득 현황 표시 — 현재 사용 턴 기준으로 예상 별 수 계산
+            int projectedStars = ProjectStarsForCurrentMoves();
+            int star3Cap = _stage.MoveLimit / 2; // 이 턴 수까지 ★★★
+            int star2Cap = _stage.MoveLimit - Mathf.Max(2, _stage.MoveLimit / 4); // 이 턴 수까지 ★★
+            string starPreview = BuildStarPreview(projectedStars);
+            int starInfoY = infoY + 42;
+            var starStyle = new GUIStyle(_caption)
+            {
+                alignment = TextAnchor.MiddleLeft,
+                fontSize = 13,
+                normal = { textColor = projectedStars == 3
+                    ? new Color(1f, 0.83f, 0.30f, 1f)
+                    : projectedStars == 2 ? new Color(0.98f, 0.75f, 0.55f, 1f)
+                    : new Color(0.75f, 0.78f, 0.82f, 1f) }
+            };
+            string detail = projectedStars == 3
+                ? "✨ 3성 진행 중 (" + star3Cap + "턴 이내)"
+                : projectedStars == 2 ? "⭐⭐ 진행 중 (" + star3Cap + "턴 이내=★★★)"
+                : "⭐ 최소 (" + star3Cap + "턴=★★★ · " + star2Cap + "턴=★★)";
+            GUI.Label(new Rect(16, starInfoY, w - 32, 22), starPreview + "  " + detail, starStyle);
+
             // WHY(유저 피드백): '합쳐질 때 화면 왜 어두워짐' — 일반 믹스에도 dim 이 뜨는 것이
             //                   원인. 이제 chain depth ≥ 2 실제 연쇄 구간에만 아주 짧게 보이게.
             // 단일 mix(비연쇄) 에선 아예 표시 안 함.
@@ -2227,7 +2267,16 @@ namespace Alchemist.Bootstrap
             int shownScore = (int)Mathf.Round(Mathf.Lerp(0f, _score, EaseOutQuart(scoreU)));
             GUI.color = new Color(1f, 1f, 1f, scoreU);
             GUI.Label(new Rect(0, h / 2 - 30, w, 40), shownScore.ToString("N0"), new GUIStyle(_display) { alignment = TextAnchor.MiddleCenter });
-            GUI.Label(new Rect(0, h / 2 + 16, w, 28), "턴 " + _moves + " / " + _stage.MoveLimit + " · 최대연쇄 " + _maxChainDepth, _overlayBody);
+            GUI.Label(new Rect(0, h / 2 + 16, w, 28), "⏱ " + _moves + " / " + _stage.MoveLimit + " · 연쇄 " + _maxChainDepth, _overlayBody);
+            if (_stageCleared)
+            {
+                int s3 = _stage.MoveLimit / 2;
+                int s2 = _stage.MoveLimit - Mathf.Max(2, _stage.MoveLimit / 4);
+                var crit = new GUIStyle(_caption)
+                { alignment = TextAnchor.MiddleCenter, fontSize = 14,
+                  normal = { textColor = new Color(0.80f, 0.82f, 0.88f, 0.85f) } };
+                GUI.Label(new Rect(0, h / 2 + 48, w, 20), "★★★ " + s3 + "턴 이내 · ★★ " + s2 + "턴 이내", crit);
+            }
             GUI.color = Color.white;
 
             // 버튼 레이아웃 수정 — 동적 폭 (UX v3 #2)
