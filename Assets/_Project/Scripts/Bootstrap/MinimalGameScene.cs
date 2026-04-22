@@ -37,7 +37,7 @@ namespace Alchemist.Bootstrap
         };
 
         // --------------- Screen state ---------------
-        private enum ScreenState { Lobby, Playing, Result, Gallery, Tutorial }
+        private enum ScreenState { Lobby, Playing, Result, Gallery, Tutorial, Settings }
         private ScreenState _screen = ScreenState.Lobby;
         private int _stageIdx;
         private StageConfig _stage;
@@ -47,6 +47,12 @@ namespace Alchemist.Bootstrap
         private const int TutorialPages = 3;
         private static bool HasSeenTutorial => PlayerPrefs.GetInt("alchemist.tut_done", 0) == 1;
         private static void MarkTutorialDone() { PlayerPrefs.SetInt("alchemist.tut_done", 1); PlayerPrefs.Save(); }
+
+        // --------------- Settings (M5) ---------------
+        private static bool SettingSfxOn => PlayerPrefs.GetInt("alchemist.cfg.sfx", 1) == 1;
+        private static bool SettingHapticOn => PlayerPrefs.GetInt("alchemist.cfg.haptic", 1) == 1;
+        private static float SettingVolume => PlayerPrefs.GetInt("alchemist.cfg.vol", 80) / 100f;
+        private bool _confirmReset; // 데이터 초기화 확인 단계
 
         // --------------- Gallery catalog (M4) ---------------
         /// <summary>Chapter → 총 조각 수. 스테이지 클리어 시 별×1 = 조각 1 적립.</summary>
@@ -1070,10 +1076,8 @@ namespace Alchemist.Bootstrap
             int particlesPerCell = Mathf.Min(48, 14 + (d - 1) * 4);
             float sfxPitch = Mathf.Min(1.5f, 1.0f + (d - 1) * 0.06f);
 
-#if UNITY_IOS || UNITY_ANDROID
-            try { Handheld.Vibrate(); } catch { }
-            if (d >= 3) { try { Handheld.Vibrate(); } catch { } } // 깊은 연쇄는 2회 tap
-#endif
+            TryVibrate();
+            if (d >= 3) TryVibrate(); // 깊은 연쇄는 2회 tap
             StartCoroutine(ScreenShake(shakeDur, shakeMag));
             for (int i = 0; i < cells.Count; i++)
                 SpawnPaintSplash(_basePos[cells[i].r, cells[i].c], _blocks[cells[i].r, cells[i].c].color, particlesPerCell, 0.5f);
@@ -1178,7 +1182,19 @@ namespace Alchemist.Bootstrap
             _sfxClear = GenerateArpeggio(new[] { 523f, 659f, 784f, 1047f }, 0.09f);
             _sfxFail = GenerateArpeggio(new[] { 440f, 370f, 294f }, 0.12f);
         }
-        private void PlaySfx(AudioClip c) { if (c != null && _audio != null) _audio.PlayOneShot(c, 0.6f); }
+        private void PlaySfx(AudioClip c)
+        {
+            if (c == null || _audio == null) return;
+            if (!SettingSfxOn) return;
+            _audio.PlayOneShot(c, 0.6f * SettingVolume);
+        }
+        private void TryVibrate()
+        {
+            if (!SettingHapticOn) return;
+#if UNITY_IOS || UNITY_ANDROID
+            try { Handheld.Vibrate(); } catch { }
+#endif
+        }
         private static AudioClip GenerateTone(float freq, float dur, float decay)
         {
             const int rate = 44100; int n = (int)(rate * dur);
@@ -1378,6 +1394,7 @@ namespace Alchemist.Bootstrap
                 case ScreenState.Result: DrawPlayingHud(); DrawResult(); break;
                 case ScreenState.Gallery: DrawGallery(); break;
                 case ScreenState.Tutorial: DrawTutorial(); break;
+                case ScreenState.Settings: DrawSettings(); break;
             }
         }
 
@@ -1398,12 +1415,18 @@ namespace Alchemist.Bootstrap
                 _screen = ScreenState.Gallery;
             }
 
-            // 좌상단 도움말 버튼 — 튜토리얼 재진입
+            // 좌상단 도움말 + 설정 버튼
             var helpRect = new Rect(16, titleY - 16, 52, 44);
             if (GUI.Button(helpRect, "?", _ghostBtn))
             {
                 _tutorialPage = 0;
                 _screen = ScreenState.Tutorial;
+            }
+            var settingsRect = new Rect(72, titleY - 16, 52, 44);
+            if (GUI.Button(settingsRect, "⚙", _ghostBtn))
+            {
+                _confirmReset = false;
+                _screen = ScreenState.Settings;
             }
 
             int btnW = Mathf.Min(w - 40, 420);
@@ -1428,6 +1451,155 @@ namespace Alchemist.Bootstrap
                 }
             }
             GUI.backgroundColor = Color.white;
+        }
+
+        /// <summary>
+        /// M5 설정 화면 — SFX / Haptic 토글, 음량 슬라이더, 튜토리얼 재시작, 데이터 초기화.
+        /// </summary>
+        private void DrawSettings()
+        {
+            var sa = GetSafeArea();
+            int w = Screen.width, h = Screen.height;
+            GUI.DrawTexture(new Rect(0, 0, w, h), _overlayTex);
+
+            int topY = (int)(sa.y + 40);
+            GUI.Label(new Rect(0, topY, w, 52), "⚙ 설정", _display);
+
+            // 뒤로 버튼 좌상단
+            if (GUI.Button(new Rect(16, topY + 8, 84, 40), "◀ 뒤로", _ghostBtn))
+            {
+                _confirmReset = false;
+                _screen = ScreenState.Lobby;
+                return;
+            }
+
+            int rowH = 64;
+            int rowW = Mathf.Min(w - 40, 420);
+            int x0 = (w - rowW) / 2;
+            int y = topY + 110;
+            int gap = 14;
+
+            // 1) SFX 토글
+            y = DrawSettingToggle(x0, y, rowW, rowH, "효과음", SettingSfxOn, () =>
+            {
+                PlayerPrefs.SetInt("alchemist.cfg.sfx", SettingSfxOn ? 0 : 1);
+                PlayerPrefs.Save();
+            });
+            y += gap;
+
+            // 2) 햅틱 토글
+            y = DrawSettingToggle(x0, y, rowW, rowH, "진동(햅틱)", SettingHapticOn, () =>
+            {
+                PlayerPrefs.SetInt("alchemist.cfg.haptic", SettingHapticOn ? 0 : 1);
+                PlayerPrefs.Save();
+            });
+            y += gap;
+
+            // 3) 음량 슬라이더
+            y = DrawSettingSlider(x0, y, rowW, rowH, "음량", PlayerPrefs.GetInt("alchemist.cfg.vol", 80), v =>
+            {
+                PlayerPrefs.SetInt("alchemist.cfg.vol", v);
+                PlayerPrefs.Save();
+            });
+            y += gap * 2;
+
+            // 4) 튜토리얼 다시보기
+            y = DrawSettingActionRow(x0, y, rowW, rowH, "튜토리얼 다시보기", "▶", () =>
+            {
+                _tutorialPage = 0;
+                _screen = ScreenState.Tutorial;
+            });
+            y += gap;
+
+            // 5) 데이터 초기화 (2단계 확인)
+            if (!_confirmReset)
+            {
+                y = DrawSettingActionRow(x0, y, rowW, rowH, "모든 데이터 초기화", "⚠", () =>
+                {
+                    _confirmReset = true;
+                }, dangerStyle: true);
+            }
+            else
+            {
+                // 확인 박스
+                var bgRect = new Rect(x0, y, rowW, rowH * 2 + 10);
+                GUI.DrawTexture(bgRect, _toastDangerBg);
+                GUI.Label(new Rect(x0, y + 10, rowW, 28), "정말 초기화? 별점·진행·설정 모두 삭제", _overlayBody);
+                int btnW = (rowW - 24) / 2;
+                GUI.backgroundColor = new Color(0.32f, 0.34f, 0.40f, 1f);
+                if (GUI.Button(new Rect(x0 + 8, y + rowH, btnW, rowH - 6), "취소", _ghostBtn))
+                {
+                    _confirmReset = false;
+                }
+                GUI.backgroundColor = new Color(0.94f, 0.27f, 0.27f, 1f);
+                if (GUI.Button(new Rect(x0 + 16 + btnW, y + rowH, btnW, rowH - 6), "초기화 실행", _primaryBtn))
+                {
+                    PlayerPrefs.DeleteAll();
+                    PlayerPrefs.Save();
+                    _confirmReset = false;
+                    ShowToast("초기화 완료", ToastKind.Warn);
+                    _screen = ScreenState.Lobby;
+                }
+                GUI.backgroundColor = Color.white;
+                y += rowH * 2 + 10;
+            }
+            y += gap * 2;
+
+            // 버전
+            GUI.Label(new Rect(0, y, w, 22), "컬러 믹스: 연금술사 v1.0.0", _caption);
+        }
+
+        private int DrawSettingToggle(int x, int y, int w, int h, string label, bool on, System.Action onToggle)
+        {
+            GUI.DrawTexture(new Rect(x, y, w, h), _panelBg);
+            GUI.Label(new Rect(x + 20, y, w - 140, h), label, _body);
+
+            int tW = 72, tH = 36;
+            int tX = x + w - tW - 16;
+            int tY = y + (h - tH) / 2;
+            var bg = on ? _toastSuccessBg : _stageBtnBg;
+            GUI.DrawTexture(new Rect(tX, tY, tW, tH), bg);
+            int knobSz = 28;
+            int knobX = on ? tX + tW - knobSz - 4 : tX + 4;
+            GUI.DrawTexture(new Rect(knobX, tY + 4, knobSz, knobSz), _primaryBtnBg);
+
+            // 전체 영역 버튼
+            if (GUI.Button(new Rect(x, y, w, h), "", GUIStyle.none))
+            {
+                onToggle?.Invoke();
+            }
+            return y + h;
+        }
+
+        private int DrawSettingSlider(int x, int y, int w, int h, string label, int initial, System.Action<int> onChange)
+        {
+            GUI.DrawTexture(new Rect(x, y, w, h), _panelBg);
+            GUI.Label(new Rect(x + 20, y, 140, h), label, _body);
+            GUI.Label(new Rect(x + w - 68, y, 48, h), initial + "%", _body);
+
+            var sliderRect = new Rect(x + 180, y + (h - 20) / 2, w - 260, 20);
+            float nv = GUI.HorizontalSlider(sliderRect, initial, 0f, 100f);
+            int newVal = Mathf.RoundToInt(nv);
+            if (newVal != initial)
+            {
+                onChange?.Invoke(newVal);
+            }
+            return y + h;
+        }
+
+        private int DrawSettingActionRow(int x, int y, int w, int h, string label, string icon, System.Action onTap, bool dangerStyle = false)
+        {
+            GUI.DrawTexture(new Rect(x, y, w, h), _panelBg);
+            var labelStyle = dangerStyle
+                ? new GUIStyle(_body) { normal = { textColor = new Color(0.96f, 0.55f, 0.55f, 1f) } }
+                : _body;
+            GUI.Label(new Rect(x + 20, y, w - 80, h), label, labelStyle);
+            GUI.Label(new Rect(x + w - 60, y, 40, h), icon, _heading);
+            if (GUI.Button(new Rect(x, y, w, h), "", GUIStyle.none))
+            {
+                onTap?.Invoke();
+            }
+            return y + h;
         }
 
         /// <summary>
