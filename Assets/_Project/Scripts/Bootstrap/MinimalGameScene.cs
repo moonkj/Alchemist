@@ -145,7 +145,9 @@ namespace Alchemist.Bootstrap
             BuildPaletteSlots();
             FitCameraToBoard();
             SetupAudio();
-            SetBoardVisible(false); // 로비에선 숨김
+            SetBoardVisible(false); // 로비/튜토리얼에선 숨김
+            // 첫 실행 유저는 튜토리얼부터
+            if (!HasSeenTutorial) { _screen = ScreenState.Tutorial; _tutorialPage = 0; }
         }
 
         // --------------- Board construction ---------------
@@ -1375,6 +1377,7 @@ namespace Alchemist.Bootstrap
                 case ScreenState.Playing: DrawPlayingHud(); DrawToast(); break;
                 case ScreenState.Result: DrawPlayingHud(); DrawResult(); break;
                 case ScreenState.Gallery: DrawGallery(); break;
+                case ScreenState.Tutorial: DrawTutorial(); break;
             }
         }
 
@@ -1393,6 +1396,14 @@ namespace Alchemist.Bootstrap
             if (GUI.Button(galleryRect, "🎨 갤러리 " + totalFrag + "/" + maxFrag, _ghostBtn))
             {
                 _screen = ScreenState.Gallery;
+            }
+
+            // 좌상단 도움말 버튼 — 튜토리얼 재진입
+            var helpRect = new Rect(16, titleY - 16, 52, 44);
+            if (GUI.Button(helpRect, "?", _ghostBtn))
+            {
+                _tutorialPage = 0;
+                _screen = ScreenState.Tutorial;
             }
 
             int btnW = Mathf.Min(w - 40, 420);
@@ -1417,6 +1428,175 @@ namespace Alchemist.Bootstrap
                 }
             }
             GUI.backgroundColor = Color.white;
+        }
+
+        /// <summary>
+        /// 튜토리얼 Stage 0 — 3페이지 규칙 안내. 첫 실행 시 자동 진입, 로비 ?버튼으로 재진입.
+        /// </summary>
+        private void DrawTutorial()
+        {
+            var sa = GetSafeArea();
+            int w = Screen.width, h = Screen.height;
+
+            // 배경
+            GUI.DrawTexture(new Rect(0, 0, w, h), _overlayTex);
+
+            int topY = (int)(sa.y + 40);
+
+            // 페이지 인디케이터 (도트)
+            int dotW = 14, dotGap = 8;
+            int totalDotsW = TutorialPages * dotW + (TutorialPages - 1) * dotGap;
+            int dotX0 = (w - totalDotsW) / 2;
+            int dotY = topY + 4;
+            for (int i = 0; i < TutorialPages; i++)
+            {
+                var dotTex = (i == _tutorialPage) ? _primaryBtnBg : _stageBtnBg;
+                GUI.DrawTexture(new Rect(dotX0 + i * (dotW + dotGap), dotY, dotW, dotW), dotTex);
+            }
+
+            // 스킵 버튼 (우상단)
+            if (GUI.Button(new Rect(w - 100, topY, 84, 36), "건너뛰기", _ghostBtn))
+            {
+                FinishTutorial();
+                return;
+            }
+
+            // 페이지 컨텐츠
+            switch (_tutorialPage)
+            {
+                case 0: DrawTutorialPage0(w, h, topY); break;
+                case 1: DrawTutorialPage1(w, h, topY); break;
+                case 2: DrawTutorialPage2(w, h, topY); break;
+            }
+
+            // 하단 버튼
+            float bottomSafeY = Screen.height - (sa.y + sa.height);
+            int btnY = (int)(h - bottomSafeY - 100);
+            int btnH = 60;
+            int btnW = 180;
+            int gap = 16;
+
+            // "이전" 버튼 (0페이지 아닐 때)
+            if (_tutorialPage > 0)
+            {
+                GUI.backgroundColor = new Color(0.32f, 0.34f, 0.40f, 1f);
+                if (GUI.Button(new Rect((w - (btnW * 2 + gap)) / 2, btnY, btnW, btnH), "◀ 이전", _ghostBtn))
+                {
+                    _tutorialPage--;
+                }
+                GUI.backgroundColor = Color.white;
+            }
+
+            // "다음" 또는 "시작하기"
+            bool isLast = _tutorialPage == TutorialPages - 1;
+            int nextX = _tutorialPage > 0
+                ? (w - (btnW * 2 + gap)) / 2 + btnW + gap
+                : (w - btnW) / 2;
+
+            GUI.backgroundColor = new Color(0.62f, 0.31f, 0.87f, 1f);
+            if (GUI.Button(new Rect(nextX, btnY, btnW, btnH), isLast ? "시작하기 ▶" : "다음 ▶", _primaryBtn))
+            {
+                if (isLast) FinishTutorial();
+                else _tutorialPage++;
+            }
+            GUI.backgroundColor = Color.white;
+        }
+
+        private void FinishTutorial()
+        {
+            MarkTutorialDone();
+            _screen = ScreenState.Lobby;
+        }
+
+        private void DrawTutorialPage0(int w, int h, int topY)
+        {
+            // 환영 페이지
+            GUI.Label(new Rect(0, topY + 40, w, 60), "컬러 믹스", _display);
+            GUI.Label(new Rect(0, topY + 100, w, 44), "연금술사", _heading);
+
+            int artY = h / 2 - 80;
+            int sz = 72, gap = 24;
+            int totalW = 3 * sz + 2 * gap;
+            int x0 = (w - totalW) / 2;
+
+            // 3 원색 블록 시연
+            DrawDemoBlock(x0, artY, sz, ColorId.Red);
+            DrawDemoBlock(x0 + sz + gap, artY, sz, ColorId.Yellow);
+            DrawDemoBlock(x0 + (sz + gap) * 2, artY, sz, ColorId.Blue);
+
+            GUI.Label(new Rect(0, artY + sz + 30, w, 28), "세 가지 원색으로", _overlayBody);
+            GUI.Label(new Rect(0, artY + sz + 60, w, 28), "모든 색을 만들어내세요", _overlayBody);
+        }
+
+        private void DrawTutorialPage1(int w, int h, int topY)
+        {
+            GUI.Label(new Rect(0, topY + 40, w, 48), "색 조합 규칙", _heading);
+
+            int rowH = 90, sz = 60, plus = 28, eq = 28, resSz = 60;
+            int totalRowW = sz + plus + sz + eq + resSz;
+
+            // 3 rules: R+Y=O, Y+B=G, R+B=P
+            var rules = new[]
+            {
+                (ColorId.Red, ColorId.Yellow, ColorId.Orange),
+                (ColorId.Yellow, ColorId.Blue, ColorId.Green),
+                (ColorId.Red, ColorId.Blue, ColorId.Purple),
+            };
+
+            int startY = h / 2 - (rowH * rules.Length) / 2 - 20;
+            for (int i = 0; i < rules.Length; i++)
+            {
+                var (a, b, outC) = rules[i];
+                int x = (w - totalRowW) / 2;
+                int y = startY + i * rowH;
+                DrawDemoBlock(x, y, sz, a);
+                GUI.Label(new Rect(x + sz, y + (sz - 36) / 2, plus, 36), "+", _display);
+                DrawDemoBlock(x + sz + plus, y, sz, b);
+                GUI.Label(new Rect(x + sz + plus + sz, y + (sz - 36) / 2, eq, 36), "=", _display);
+                DrawDemoBlock(x + sz + plus + sz + eq, y, resSz, outC);
+            }
+
+            GUI.Label(new Rect(0, startY + rowH * rules.Length + 10, w, 26), "원색을 섞어 2차색을 만드세요", _overlayBody);
+        }
+
+        private void DrawTutorialPage2(int w, int h, int topY)
+        {
+            GUI.Label(new Rect(0, topY + 40, w, 48), "3연결 폭발 + 팔레트", _heading);
+
+            // 예시: 3연결 Purple
+            int sz = 56, gap = 6;
+            int demoW = sz * 3 + gap * 2;
+            int demoY = h / 2 - 150;
+            int demoX0 = (w - demoW) / 2;
+            for (int i = 0; i < 3; i++) DrawDemoBlock(demoX0 + i * (sz + gap), demoY, sz, ColorId.Purple);
+            GUI.Label(new Rect(0, demoY + sz + 14, w, 26), "같은 2차색 3개 가로/세로 연결 → 폭발!", _overlayBody);
+
+            // 팔레트 슬롯 예시
+            int palY = demoY + sz + 70;
+            int palSz = 50;
+            int palW = palSz * 3 + gap * 2;
+            int palX0 = (w - palW) / 2;
+            // 2 빈 슬롯 + 1 저장된 (Yellow)
+            DrawPaletteDemo(palX0, palY, palSz, ColorId.None);
+            DrawPaletteDemo(palX0 + palSz + gap, palY, palSz, ColorId.Yellow);
+            DrawPaletteDemo(palX0 + (palSz + gap) * 2, palY, palSz, ColorId.None);
+
+            GUI.Label(new Rect(0, palY + palSz + 14, w, 26), "하단 팔레트에 저장 · 드래그로 꺼내기", _overlayBody);
+        }
+
+        private void DrawDemoBlock(int x, int y, int sz, ColorId color)
+        {
+            var tex = EnsureCachedSolid(ColorToUnity(color));
+            // 약간 안쪽에 그려 rounded 느낌
+            GUI.DrawTexture(new Rect(x + 3, y + 3, sz - 6, sz - 6), tex);
+        }
+
+        private void DrawPaletteDemo(int x, int y, int sz, ColorId color)
+        {
+            var bgTex = (color == ColorId.None)
+                ? EnsureCachedSolid(new Color(0.22f, 0.24f, 0.30f, 0.55f))
+                : EnsureCachedSolid(ColorToUnity(color));
+            GUI.DrawTexture(new Rect(x, y, sz, sz), bgTex);
         }
 
         /// <summary>
