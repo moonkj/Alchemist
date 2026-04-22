@@ -255,6 +255,7 @@ namespace Alchemist.Bootstrap
             _toast = ""; _toastUntil = 0f;
             _inputLocked = false;
             BuildGrid(_stage.Seed);
+            ResetPaletteColors();
             SetBoardVisible(true);
             _screen = ScreenState.Playing;
         }
@@ -335,63 +336,123 @@ namespace Alchemist.Bootstrap
 
         private void OnDragBegin(Vector3 world)
         {
-            if (!FindCell(world, out int r, out int c)) return;
-            if (_colorGrid[r, c] == ColorId.None) return;
-            _dragR = r; _dragC = c;
-            _blocks[r, c].sortingOrder = 10;
-            // 드래그 물리 상태 초기화
+            // 보드 먼저 탐색
+            if (FindCell(world, out int r, out int c) && _colorGrid[r, c] != ColorId.None)
+            {
+                _dragR = r; _dragC = c;
+                _dragSource = DragSource.Board;
+                _blocks[r, c].sortingOrder = 10;
+            }
+            else if (FindPaletteSlot(world, out int slotIdx) && _paletteColors[slotIdx] != ColorId.None)
+            {
+                // 팔레트 슬롯에서 꺼내기
+                _dragSlotIdx = slotIdx;
+                _dragSource = DragSource.Palette;
+                _paletteSprites[slotIdx].sortingOrder = 10;
+            }
+            else return;
+
             _dragVel = Vector3.zero;
             _lastDragWorld = world;
             _dragVelEma = Vector2.zero;
         }
+
         private void OnDragMove(Vector3 world)
         {
-            if (_dragR < 0) return;
-            var tr = _blocks[_dragR, _dragC].transform;
+            Transform tr = GetDragTransform();
+            if (tr == null) return;
             float dt = Mathf.Max(0.0001f, Time.deltaTime);
 
-            // 1) 손가락 속도 EMA
             Vector2 inst = (Vector2)(world - _lastDragWorld) / dt;
             _dragVelEma = _dragVelEma * 0.75f + inst * 0.25f;
             _lastDragWorld = world;
 
-            // 2) Critically-damped spring — 블록이 손가락을 0.08s lag 로 뒤따라감
             Vector3 target = new Vector3(world.x, world.y, -0.1f);
             tr.position = Vector3.SmoothDamp(tr.position, target, ref _dragVel, 0.08f, 40f);
 
-            // 3) 속도 기반 squash-stretch — 진행방향 길쭉, 수직 납작 (부피 보존 흉내)
             float speedN = Mathf.Clamp01(_dragVelEma.magnitude / 6f);
             float sx = 1.0f + 0.28f * speedN;
             float sy = 1.0f - 0.18f * speedN;
             float lift = 1.12f;
             tr.localScale = new Vector3(CellSize * lift * sx, CellSize * lift * sy, CellSize);
 
-            // 4) 진행 방향 rotation (속도 충분할 때만)
             float rotZ = 0f;
             if (_dragVelEma.sqrMagnitude > 0.25f)
                 rotZ = Mathf.Atan2(_dragVelEma.y, _dragVelEma.x) * Mathf.Rad2Deg * 0.18f;
             rotZ = Mathf.Clamp(rotZ, -10f, 10f);
             tr.rotation = Quaternion.Slerp(tr.rotation, Quaternion.Euler(0f, 0f, rotZ), dt * 12f);
         }
+
         private void OnDragEnd(Vector3 world)
         {
-            if (_dragR < 0) return;
-            int sr = _dragR, sc = _dragC;
-            _dragR = _dragC = -1;
-            _blocks[sr, sc].sortingOrder = 0;
-            _blocks[sr, sc].transform.rotation = Quaternion.identity;
+            if (_dragSource == DragSource.None) return;
 
-            if (!FindCell(world, out int tr, out int tc) || (tr == sr && tc == sc)) { SnapBack(sr, sc); return; }
-            if (!IsAdjacent(sr, sc, tr, tc)) { SnapBack(sr, sc); return; }
-            SnapBack(sr, sc);
-            TryMix(sr, sc, tr, tc);
+            bool overBoard = FindCell(world, out int tr, out int tc);
+            bool overSlot = FindPaletteSlot(world, out int tsIdx);
+
+            if (_dragSource == DragSource.Board)
+            {
+                int sr = _dragR, sc = _dragC;
+                _blocks[sr, sc].sortingOrder = 0;
+                _blocks[sr, sc].transform.rotation = Quaternion.identity;
+                _dragR = _dragC = -1;
+
+                if (overSlot && _paletteColors[tsIdx] == ColorId.None)
+                {
+                    // board → 빈 슬롯 = 저장
+                    StoreBoardToSlot(sr, sc, tsIdx);
+                }
+                else if (overBoard && !(tr == sr && tc == sc) && IsAdjacent(sr, sc, tr, tc))
+                {
+                    SnapBack(sr, sc);
+                    TryMix(sr, sc, tr, tc);
+                }
+                else
+                {
+                    SnapBack(sr, sc);
+                }
+            }
+            else if (_dragSource == DragSource.Palette)
+            {
+                int slot = _dragSlotIdx;
+                _paletteSprites[slot].sortingOrder = 2;
+                _paletteSprites[slot].transform.rotation = Quaternion.identity;
+                _dragSlotIdx = -1;
+
+                if (overBoard && _colorGrid[tr, tc] != ColorId.None)
+                {
+                    // 팔레트 → 보드 셀 = 혼합
+                    UseSlotOnBoard(slot, tr, tc);
+                }
+                else
+                {
+                    SnapBackSlot(slot);
+                }
+            }
+
+            _dragSource = DragSource.None;
+        }
+
+        private Transform GetDragTransform()
+        {
+            if (_dragSource == DragSource.Board && _dragR >= 0) return _blocks[_dragR, _dragC].transform;
+            if (_dragSource == DragSource.Palette && _dragSlotIdx >= 0) return _paletteSprites[_dragSlotIdx].transform;
+            return null;
         }
 
         private void SnapBack(int r, int c)
         {
-            // WHY: 즉시 teleport 대신 SpringBackAnim 으로 말캉한 바운스 되돌림.
             StartCoroutine(SpringBackAnim(r, c));
         }
+
+        private void SnapBackSlot(int idx)
+        {
+            if (idx < 0) return;
+            var t = _paletteSprites[idx].transform;
+            t.position = _palettePos[idx];
+            t.localScale = Vector3.one * (CellSize * 0.85f);
+        }
+
         private static bool IsAdjacent(int r1, int c1, int r2, int c2)
             => (Mathf.Abs(r1 - r2) == 1 && c1 == c2) || (Mathf.Abs(c1 - c2) == 1 && r1 == r2);
 
@@ -406,6 +467,135 @@ namespace Alchemist.Bootstrap
                 if (d < best) { best = d; row = r; col = c; }
             }
             return row >= 0;
+        }
+
+        private bool FindPaletteSlot(Vector3 world, out int idx)
+        {
+            idx = -1;
+            if (_palettePos == null) return false;
+            float best = CellSize * 0.8f;
+            for (int i = 0; i < PaletteCount; i++)
+            {
+                float d = Vector2.Distance(new Vector2(world.x, world.y), _palettePos[i]);
+                if (d < best) { best = d; idx = i; }
+            }
+            return idx >= 0;
+        }
+
+        /// <summary>보드 블록을 빈 팔레트 슬롯에 저장. 원본 셀은 None, 중력/리필 트리거.</summary>
+        private void StoreBoardToSlot(int sr, int sc, int slotIdx)
+        {
+            ColorId stored = _colorGrid[sr, sc];
+            _paletteColors[slotIdx] = stored;
+            _paletteSprites[slotIdx].color = ColorToUnity(stored);
+            _paletteSprites[slotIdx].transform.position = _palettePos[slotIdx];
+            _paletteSprites[slotIdx].transform.localScale = Vector3.one * (CellSize * 0.85f);
+
+            _colorGrid[sr, sc] = ColorId.None;
+            _blocks[sr, sc].color = ColorToUnity(ColorId.None);
+            _moves++;
+            ShowToast(ColorLabel(stored) + " 저장", ToastKind.Neutral);
+            // 사운드 재활용
+            if (_audio != null && _sfxMix != null) _audio.PlayOneShot(_sfxMix, 0.5f);
+            StartCoroutine(ResolveCascadeCoroutine(ColorId.None));
+        }
+
+        /// <summary>팔레트 슬롯 색을 보드 셀에 섞기. 혼합 불가 시 스냅백.</summary>
+        private void UseSlotOnBoard(int slotIdx, int tr, int tc)
+        {
+            ColorId slotColor = _paletteColors[slotIdx];
+            ColorId boardColor = _colorGrid[tr, tc];
+            ColorId mixed = ColorMixer.Mix(slotColor, boardColor);
+            if (mixed == ColorId.None)
+            {
+                ShowToast("혼합 불가", ToastKind.Danger);
+                SnapBackSlot(slotIdx);
+                return;
+            }
+
+            // 혼합 적용
+            _colorGrid[tr, tc] = mixed;
+            _paletteColors[slotIdx] = ColorId.None;
+            _paletteSprites[slotIdx].color = new Color(0.22f, 0.24f, 0.30f, 0.55f);
+            SnapBackSlot(slotIdx);
+
+            // 타깃 물감 흐름 애니 (기존 MixPaintFlow 재활용 — 소스 셀은 존재하지 않으므로
+            //   가상 소스 위치를 슬롯으로 주기 위해 별도 경로 사용)
+            StartCoroutine(MixFromSlotFlow(slotIdx, tr, tc, slotColor, boardColor, mixed));
+
+            if (mixed == _stage.GoalColor) _goalProgress++;
+            _moves++;
+            TriggerMixFeedback(_basePos[tr, tc], mixed);
+            Vector3 mid = (_palettePos[slotIdx] + _basePos[tr, tc]) * 0.5f;
+            SpawnPaintSplash(mid, ColorToUnity(slotColor), 6, 0.30f);
+            SpawnPaintSplash(mid, ColorToUnity(boardColor), 6, 0.30f);
+            StartCoroutine(ResolveCascadeCoroutine(mixed));
+        }
+
+        /// <summary>팔레트 슬롯에서 발사된 물감 흐름 — 슬롯 위치에서 타깃 셀로 흘러들어가는 연출.</summary>
+        private IEnumerator MixFromSlotFlow(int slotIdx, int tr, int tc,
+            ColorId sourceColor, ColorId fromTarget, ColorId toColor)
+        {
+            _bouncing[tr, tc] = true;
+            var tgtSr = _blocks[tr, tc];
+            var tgtT = tgtSr.transform;
+            Vector3 targetPos = _basePos[tr, tc];
+            Color fromC = ColorToUnity(fromTarget);
+            Color toC = ColorToUnity(toColor);
+
+            // Phase 1 (0.22s): 소스 색 구체 하나를 슬롯→타깃으로 흘려보냄
+            Vector3 start = _palettePos[slotIdx];
+            var ghost = new GameObject("SlotGhost");
+            var gsr = ghost.AddComponent<SpriteRenderer>();
+            gsr.sprite = _squareSprite;
+            gsr.color = ColorToUnity(sourceColor);
+            gsr.sortingOrder = 15;
+            ghost.transform.position = start;
+            ghost.transform.localScale = Vector3.one * (CellSize * 0.55f);
+
+            float p1 = 0.22f, e1 = 0f;
+            while (e1 < p1)
+            {
+                float u = e1 / p1;
+                float ease = u * u;
+                ghost.transform.position = Vector3.Lerp(start, targetPos, ease);
+                float shrink = Mathf.Lerp(0.55f, 0.20f, ease);
+                ghost.transform.localScale = Vector3.one * (CellSize * shrink);
+                var c = gsr.color; c.a = 1f - ease * 0.9f; gsr.color = c;
+                e1 += Time.deltaTime;
+                yield return null;
+            }
+            Destroy(ghost);
+
+            // Phase 2 (0.32s): 타깃 soft pulse + 색 블렌드
+            float p2 = 0.32f, e2 = 0f;
+            while (e2 < p2)
+            {
+                float u = e2 / p2;
+                float pulse = Mathf.Sin(u * Mathf.PI) * 0.18f;
+                float s = 1f + pulse;
+                tgtT.localScale = new Vector3(CellSize * s, CellSize * s, CellSize);
+                float cu = Mathf.SmoothStep(0f, 1f, u);
+                tgtSr.color = Color.Lerp(fromC, toC, cu);
+                e2 += Time.deltaTime;
+                yield return null;
+            }
+
+            // Phase 3 잔향
+            float p3 = 0.18f, e3 = 0f;
+            while (e3 < p3)
+            {
+                float u = e3 / p3;
+                float decay = (1f - u) * (1f - u);
+                float osc = Mathf.Sin(e3 * 2f * Mathf.PI * 4f) * 0.020f * decay;
+                tgtT.localScale = new Vector3(CellSize * (1f + osc), CellSize * (1f - osc), CellSize);
+                e3 += Time.deltaTime;
+                yield return null;
+            }
+
+            tgtT.localScale = Vector3.one * CellSize;
+            tgtSr.color = toC;
+            _bouncing[tr, tc] = false;
         }
 
         // --------------- Gameplay ---------------
@@ -1362,7 +1552,7 @@ namespace Alchemist.Bootstrap
             // 하단 힌트 (safeArea 하단 여백 확보)
             float bottomSafeY = Screen.height - (sa.y + sa.height);
             int hintY = (int)(Screen.height - bottomSafeY - 32);
-            GUI.Label(new Rect(0, hintY, w, 20), "인접 셀로 드래그 · 같은 2차색 3개 연결 시 폭발", _caption);
+            GUI.Label(new Rect(0, hintY, w, 20), "블록 드래그로 혼합 · 팔레트 슬롯으로 저장/꺼내기", _caption);
         }
 
         /// <summary>진행 바를 목표 색으로 지연 교체.</summary>
