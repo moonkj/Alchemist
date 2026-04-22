@@ -47,7 +47,7 @@ namespace Alchemist.Bootstrap
         private const int Chapter1End = 5; // index 0~4
 
         // --------------- Screen state ---------------
-        private enum ScreenState { Lobby, Playing, Result, Gallery, Tutorial, Settings }
+        private enum ScreenState { Lobby, Playing, Result, Gallery, Tutorial, Settings, Paused }
         private ScreenState _screen = ScreenState.Lobby;
         private int _stageIdx;
         private StageConfig _stage;
@@ -713,8 +713,16 @@ namespace Alchemist.Bootstrap
                 else if (remaining >= 2) _stars = 2;
                 else _stars = 1;
                 _score += 200 * _stars;
+                bool wasBelowThresh = !WasChapter1Complete();
+                bool wasBelowCh2 = !WasChapter2Complete();
                 SaveStars(_stage.Id, _stars);
-                ShowToast("STAGE CLEAR! +" + (200 * _stars), ToastKind.Success);
+                // 챕터 완주 축하 메시지 (우선 순위: ch2 > ch1)
+                if (wasBelowCh2 && WasChapter2Complete())
+                    ShowToast("🌊 챕터 2 완주! +" + (200 * _stars), ToastKind.Success);
+                else if (wasBelowThresh && WasChapter1Complete())
+                    ShowToast("🎉 챕터 1 완주! 다음 챕터 해금", ToastKind.Success);
+                else
+                    ShowToast("STAGE CLEAR! +" + (200 * _stars), ToastKind.Success);
                 _resultEnterT = 0f;
                 for (int i = 0; i < _starLit.Length; i++) _starLit[i] = 0f;
                 PlaySfx(_sfxClear);
@@ -1412,6 +1420,7 @@ namespace Alchemist.Bootstrap
                 case ScreenState.Gallery: DrawGallery(); break;
                 case ScreenState.Tutorial: DrawTutorial(); break;
                 case ScreenState.Settings: DrawSettings(); break;
+                case ScreenState.Paused: DrawPlayingHud(); DrawPauseOverlay(); break;
             }
         }
 
@@ -1520,6 +1529,50 @@ namespace Alchemist.Bootstrap
             for (int i = 0; i < Chapter1End; i++)
                 if (GetStoredStars(Stages[i].Id) <= 0) return false;
             return true;
+        }
+        private bool WasChapter1Complete()
+        {
+            for (int i = 0; i < Chapter1End; i++)
+                if (GetStoredStars(Stages[i].Id) <= 0) return false;
+            return true;
+        }
+        private bool WasChapter2Complete()
+        {
+            for (int i = Chapter1End; i < Stages.Length; i++)
+                if (GetStoredStars(Stages[i].Id) <= 0) return false;
+            return true;
+        }
+
+        /// <summary>일시정지 오버레이 — 재개 / 재시작 / 로비 3선택.</summary>
+        private void DrawPauseOverlay()
+        {
+            int w = Screen.width, h = Screen.height;
+            GUI.DrawTexture(new Rect(0, 0, w, h), _overlayTex);
+
+            GUI.Label(new Rect(0, h / 2 - 200, w, 60), "일시정지", _overlayTitle);
+            GUI.Label(new Rect(0, h / 2 - 130, w, 28), "스테이지를 잠시 멈췄습니다", _overlayBody);
+
+            int btnW = Mathf.Min(w - 48, 340);
+            int btnH = 60;
+            int x0 = (w - btnW) / 2;
+            int gap = 14;
+            int y0 = h / 2 - 40;
+
+            GUI.backgroundColor = new Color(0.62f, 0.31f, 0.87f, 1f);
+            if (GUI.Button(new Rect(x0, y0, btnW, btnH), "▶ 재개", _primaryBtn))
+            {
+                _screen = ScreenState.Playing;
+            }
+            GUI.backgroundColor = new Color(0.32f, 0.34f, 0.40f, 1f);
+            if (GUI.Button(new Rect(x0, y0 + btnH + gap, btnW, btnH), "↻ 재시작", _ghostBtn))
+            {
+                StartStage(_stageIdx);
+            }
+            if (GUI.Button(new Rect(x0, y0 + (btnH + gap) * 2, btnW, btnH), "로비로", _ghostBtn))
+            {
+                ExitToLobby();
+            }
+            GUI.backgroundColor = Color.white;
         }
 
         /// <summary>
@@ -1982,7 +2035,11 @@ namespace Alchemist.Bootstrap
             GUI.DrawTexture(new Rect(0, topSafe, w, panelH), _panelBg);
             GUI.Label(new Rect(16, topSafe + 10, w - 100, 32), _stage.Title, _heading);
 
-            // 우상단 로비 버튼
+            // 우상단: 일시정지 + 로비
+            if (GUI.Button(new Rect(w - 166, topSafe + 10, 72, 32), "⏸", _ghostBtn))
+            {
+                if (_screen == ScreenState.Playing) _screen = ScreenState.Paused;
+            }
             if (GUI.Button(new Rect(w - 88, topSafe + 10, 72, 32), "로비", _ghostBtn))
             {
                 ExitToLobby();
