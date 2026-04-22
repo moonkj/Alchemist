@@ -718,9 +718,9 @@ namespace Alchemist.Bootstrap
                 SaveStars(_stage.Id, _stars);
                 // 챕터 완주 축하 메시지 (우선 순위: ch2 > ch1)
                 if (wasBelowCh2 && WasChapter2Complete())
-                    ShowToast("🌊 챕터 2 완주! +" + (200 * _stars), ToastKind.Success);
+                    ShowToast("챕터 2 완주! +" + (200 * _stars), ToastKind.Success);
                 else if (wasBelowThresh && WasChapter1Complete())
-                    ShowToast("🎉 챕터 1 완주! 다음 챕터 해금", ToastKind.Success);
+                    ShowToast("챕터 1 완주! 다음 챕터 해금", ToastKind.Success);
                 else
                     ShowToast("STAGE CLEAR! +" + (200 * _stars), ToastKind.Success);
                 _resultEnterT = 0f;
@@ -1335,6 +1335,7 @@ namespace Alchemist.Bootstrap
         private void EnsureStyles()
         {
             if (_display != null) return;
+            EnsureIcons();
             // v4 타이포 — ×1.6 전면 확대 (아이/고령 친화) — 마스터: display 80 / heading 44 / scoreBig 64 / body 24 / caption 20
             _display = new GUIStyle(GUI.skin.label) { fontSize = 80, alignment = TextAnchor.MiddleCenter, fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(1f, 0.96f, 0.85f, 1f) } };
@@ -1387,6 +1388,279 @@ namespace Alchemist.Bootstrap
             return tex;
         }
 
+        /// <summary>원형 배경 + 아이콘 텍스처 형태의 버튼. 이모지 대체 UI.</summary>
+        private bool DrawIconButton(Rect rect, Texture2D icon)
+        {
+            // 원형 느낌 배경
+            GUI.DrawTexture(rect, _ghostBtnBg);
+            // 아이콘 중앙 배치 — 버튼 크기의 55%
+            float iconSize = Mathf.Min(rect.width, rect.height) * 0.55f;
+            var iconRect = new Rect(
+                rect.x + (rect.width - iconSize) * 0.5f,
+                rect.y + (rect.height - iconSize) * 0.5f,
+                iconSize, iconSize);
+            if (icon != null) GUI.DrawTexture(iconRect, icon);
+            return GUI.Button(rect, GUIContent.none, GUIStyle.none);
+        }
+
+        // --------------- 프로시저얼 아이콘 (이모지 대체) ---------------
+        // Unity 기본 폰트는 이모지 미지원 → □ 박스로 표시되던 문제 해결을 위해
+        // 핵심 아이콘을 Texture2D 로 그려서 GUI.DrawTexture 렌더.
+        private Texture2D _iconHome, _iconGear, _iconQuestion, _iconPause, _iconClose,
+                          _iconStar, _iconCrown, _iconPalette, _iconPlus, _iconPlay;
+
+        private void EnsureIcons()
+        {
+            if (_iconHome != null) return;
+            _iconHome = BuildHomeIcon();
+            _iconGear = BuildGearIcon();
+            _iconQuestion = BuildQuestionIcon();
+            _iconPause = BuildPauseIcon();
+            _iconClose = BuildCloseIcon();
+            _iconStar = BuildStarIcon(new Color(1f, 0.86f, 0.30f, 1f));
+            _iconCrown = BuildCrownIcon();
+            _iconPalette = BuildPaletteIcon();
+            _iconPlus = BuildPlusIcon();
+            _iconPlay = BuildPlayIcon();
+        }
+
+        private static Texture2D BuildBlankIcon(int sz, Color fill)
+        {
+            var tex = new Texture2D(sz, sz, TextureFormat.RGBA32, false);
+            var px = new Color32[sz * sz];
+            for (int i = 0; i < px.Length; i++) px[i] = new Color32(0, 0, 0, 0);
+            tex.SetPixels32(px);
+            tex.filterMode = FilterMode.Bilinear;
+            return tex;
+        }
+
+        private static void Px(Texture2D t, int x, int y, Color c)
+        {
+            if (x < 0 || y < 0 || x >= t.width || y >= t.height) return;
+            t.SetPixel(x, y, c);
+        }
+
+        private static void Rect(Texture2D t, int x, int y, int w, int h, Color c)
+        {
+            for (int yy = y; yy < y + h; yy++)
+                for (int xx = x; xx < x + w; xx++) Px(t, xx, yy, c);
+        }
+
+        private static void Disk(Texture2D t, float cx, float cy, float r, Color c)
+        {
+            int sz = t.width;
+            for (int y = 0; y < sz; y++)
+                for (int x = 0; x < sz; x++)
+                {
+                    float dx = x - cx, dy = y - cy;
+                    if (dx * dx + dy * dy <= r * r) Px(t, x, y, c);
+                }
+        }
+
+        private static void DiskAnnulus(Texture2D t, float cx, float cy, float rOuter, float rInner, Color c)
+        {
+            int sz = t.width;
+            for (int y = 0; y < sz; y++)
+                for (int x = 0; x < sz; x++)
+                {
+                    float dx = x - cx, dy = y - cy;
+                    float d2 = dx * dx + dy * dy;
+                    if (d2 <= rOuter * rOuter && d2 >= rInner * rInner) Px(t, x, y, c);
+                }
+        }
+
+        private static Texture2D BuildHomeIcon()
+        {
+            const int sz = 48;
+            var t = BuildBlankIcon(sz, Color.clear);
+            var c = Color.white;
+            // 지붕 삼각형 (사다리꼴 근사)
+            for (int row = 0; row < 14; row++)
+            {
+                int y = sz - 4 - row;
+                int half = 8 + row;
+                Rect(t, sz / 2 - half, y, half * 2, 1, c);
+            }
+            // 벽 사각형
+            Rect(t, 8, 4, sz - 16, 26, c);
+            // 문 (빈 공간)
+            Rect(t, sz / 2 - 4, 4, 8, 12, Color.clear);
+            t.Apply();
+            return t;
+        }
+
+        private static Texture2D BuildGearIcon()
+        {
+            const int sz = 48;
+            var t = BuildBlankIcon(sz, Color.clear);
+            var c = Color.white;
+            float cx = sz / 2f - 0.5f, cy = sz / 2f - 0.5f;
+            // 6 tooth
+            for (int i = 0; i < 6; i++)
+            {
+                float ang = i * Mathf.PI / 3f;
+                float tx = cx + Mathf.Cos(ang) * 20f;
+                float ty = cy + Mathf.Sin(ang) * 20f;
+                Disk(t, tx, ty, 4.5f, c);
+            }
+            // 메인 원 (도넛)
+            DiskAnnulus(t, cx, cy, 16f, 6.5f, c);
+            t.Apply();
+            return t;
+        }
+
+        private static Texture2D BuildQuestionIcon()
+        {
+            const int sz = 48;
+            var t = BuildBlankIcon(sz, Color.clear);
+            var c = Color.white;
+            // "?" 유사 — 원호 + 꼬리 + 점
+            float cx = sz / 2f, cy = sz / 2f + 6f;
+            // 상단 원호 (두께 있는 반원)
+            for (int y = 0; y < sz; y++)
+                for (int x = 0; x < sz; x++)
+                {
+                    float dx = x - cx, dy = y - cy;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    if (d >= 9f && d <= 13f && dy < 2f) Px(t, x, y, c);
+                }
+            // 세로 stem
+            Rect(t, (int)cx - 2, 18, 4, 8, c);
+            // 점
+            Disk(t, cx, 10f, 3f, c);
+            t.Apply();
+            return t;
+        }
+
+        private static Texture2D BuildPauseIcon()
+        {
+            const int sz = 48;
+            var t = BuildBlankIcon(sz, Color.clear);
+            var c = Color.white;
+            Rect(t, 14, 10, 6, 28, c);
+            Rect(t, 28, 10, 6, 28, c);
+            t.Apply();
+            return t;
+        }
+
+        private static Texture2D BuildCloseIcon()
+        {
+            const int sz = 48;
+            var t = BuildBlankIcon(sz, Color.clear);
+            var c = Color.white;
+            // 두 대각선
+            for (int i = 0; i < 32; i++)
+            {
+                int x = 8 + i, y = 8 + i;
+                for (int k = -2; k <= 2; k++) { Px(t, x + k, y, c); Px(t, x, y + k, c); }
+                int x2 = 8 + i, y2 = sz - 8 - i;
+                for (int k = -2; k <= 2; k++) { Px(t, x2 + k, y2, c); Px(t, x2, y2 + k, c); }
+            }
+            t.Apply();
+            return t;
+        }
+
+        private static Texture2D BuildStarIcon(Color fill)
+        {
+            const int sz = 48;
+            var t = BuildBlankIcon(sz, Color.clear);
+            // 5점 별 polygon fill — 간단 근사: 중심 disk + 5개 spoke
+            float cx = sz / 2f, cy = sz / 2f;
+            Disk(t, cx, cy, 7f, fill);
+            for (int i = 0; i < 5; i++)
+            {
+                float ang = i * (Mathf.PI * 2f / 5f) - Mathf.PI / 2f;
+                float tx = cx + Mathf.Cos(ang) * 16f;
+                float ty = cy + Mathf.Sin(ang) * 16f;
+                // spoke as thick line
+                for (int k = 0; k < 16; k++)
+                {
+                    float u = k / 16f;
+                    float px = cx + (tx - cx) * u;
+                    float py = cy + (ty - cy) * u;
+                    Disk(t, px, py, 3.5f - u * 1.5f, fill);
+                }
+            }
+            t.Apply();
+            return t;
+        }
+
+        private static Texture2D BuildCrownIcon()
+        {
+            const int sz = 48;
+            var t = BuildBlankIcon(sz, Color.clear);
+            var c = new Color(1f, 0.84f, 0.30f, 1f);
+            // 베이스
+            Rect(t, 6, 8, sz - 12, 10, c);
+            // 3 스파이크
+            for (int row = 0; row < 14; row++)
+            {
+                int y = 18 + row;
+                int w = 10 - row;
+                // 좌
+                Rect(t, 6 + (10 - w) / 2 + 2, y, Mathf.Max(1, w), 1, c);
+                // 중
+                Rect(t, sz / 2 - w / 2, y, Mathf.Max(1, w), 1, c);
+                // 우
+                Rect(t, sz - 6 - 10 + (10 - w) / 2 - 2, y, Mathf.Max(1, w), 1, c);
+            }
+            // 스파이크 꼭대기 점
+            Disk(t, 11, 34, 2.5f, c);
+            Disk(t, sz / 2, 34, 2.5f, c);
+            Disk(t, sz - 11, 34, 2.5f, c);
+            t.Apply();
+            return t;
+        }
+
+        private static Texture2D BuildPaletteIcon()
+        {
+            const int sz = 48;
+            var t = BuildBlankIcon(sz, Color.clear);
+            var outline = new Color(1f, 0.96f, 0.85f, 1f);
+            float cx = sz / 2f, cy = sz / 2f;
+            // 반원 기본판 (3/4 원)
+            for (int y = 0; y < sz; y++)
+                for (int x = 0; x < sz; x++)
+                {
+                    float dx = x - cx, dy = y - cy;
+                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    if (d <= 19f && !(x > cx + 6 && y < cy - 6)) Px(t, x, y, outline);
+                }
+            // 색 점 3개
+            Disk(t, cx - 8, cy + 6, 3f, new Color(0.90f, 0.22f, 0.27f, 1f));
+            Disk(t, cx + 5, cy + 8, 3f, new Color(0.97f, 0.83f, 0.30f, 1f));
+            Disk(t, cx - 2, cy - 6, 3f, new Color(0.28f, 0.58f, 0.94f, 1f));
+            t.Apply();
+            return t;
+        }
+
+        private static Texture2D BuildPlusIcon()
+        {
+            const int sz = 48;
+            var t = BuildBlankIcon(sz, Color.clear);
+            var c = new Color(0.78f, 0.68f, 0.98f, 0.95f);
+            Rect(t, 8, sz / 2 - 4, sz - 16, 8, c);
+            Rect(t, sz / 2 - 4, 8, 8, sz - 16, c);
+            t.Apply();
+            return t;
+        }
+
+        private static Texture2D BuildPlayIcon()
+        {
+            const int sz = 48;
+            var t = BuildBlankIcon(sz, Color.clear);
+            var c = Color.white;
+            // 삼각형 (오른쪽 가리킴)
+            for (int y = 8; y < sz - 8; y++)
+            {
+                int half = Mathf.Abs(y - sz / 2);
+                int w = (sz - 16) / 2 - half;
+                Rect(t, 12, y, w, 1, c);
+            }
+            t.Apply();
+            return t;
+        }
+
         /// <summary>Safe area 대응 (노치/다이나믹 아일랜드/홈 인디케이터).</summary>
         private Rect GetSafeArea()
         {
@@ -1412,6 +1686,10 @@ namespace Alchemist.Bootstrap
             DestroyTex(ref _primaryBtnBg);
             DestroyTex(ref _ghostBtnBg);
             DestroyTex(ref _dimOverlay);
+            DestroyTex(ref _iconHome); DestroyTex(ref _iconGear); DestroyTex(ref _iconQuestion);
+            DestroyTex(ref _iconPause); DestroyTex(ref _iconClose); DestroyTex(ref _iconStar);
+            DestroyTex(ref _iconCrown); DestroyTex(ref _iconPalette); DestroyTex(ref _iconPlus);
+            DestroyTex(ref _iconPlay);
             DestroyTex(ref _lastArtProgTex);
             if (_solidCache != null)
             {
@@ -1448,26 +1726,26 @@ namespace Alchemist.Bootstrap
             GUI.Label(new Rect(0, titleY, w, 56), "Color Mix: Alchemist", _display);
             GUI.Label(new Rect(0, titleY + 64, w, 22), "색을 설계하고 폭발시켜 세상을 복원하라", _overlayBody);
 
-            // 우상단 갤러리 버튼 (M4) — 크게
+            // 우상단 갤러리 버튼 — 아이콘 + 텍스트
             int totalFrag = GetTotalUnlockedFragments();
             int maxFrag = Stages.Length * 3;
-            var galleryRect = new Rect(w - 176, titleY - 20, 160, 56);
-            var galleryStyle = new GUIStyle(_ghostBtn) { fontSize = 18, fontStyle = FontStyle.Bold };
-            if (GUI.Button(galleryRect, "🎨 " + totalFrag + "/" + maxFrag, galleryStyle))
+            var galleryRect = new Rect(w - 190, titleY - 20, 174, 72);
+            GUI.DrawTexture(galleryRect, _ghostBtnBg);
+            GUI.DrawTexture(new Rect(galleryRect.x + 12, galleryRect.y + 12, 48, 48), _iconPalette);
+            var galleryStyle = new GUIStyle(_body) { fontSize = 22, alignment = TextAnchor.MiddleLeft, fontStyle = FontStyle.Bold };
+            GUI.Label(new Rect(galleryRect.x + 70, galleryRect.y, 110, galleryRect.height), totalFrag + "/" + maxFrag, galleryStyle);
+            if (GUI.Button(galleryRect, GUIContent.none, GUIStyle.none))
             {
                 _screen = ScreenState.Gallery;
             }
 
-            // 좌상단 도움말 + 설정 버튼 (큰 터치 타깃)
-            var lobbyIconStyle = new GUIStyle(_ghostBtn) { fontSize = 24, fontStyle = FontStyle.Bold };
-            var helpRect = new Rect(16, titleY - 20, 64, 56);
-            if (GUI.Button(helpRect, "❓", lobbyIconStyle))
+            // 좌상단 도움말 + 설정 버튼 (프로시저얼 아이콘)
+            if (DrawIconButton(new Rect(16, titleY - 20, 72, 72), _iconQuestion))
             {
                 _tutorialPage = 0;
                 _screen = ScreenState.Tutorial;
             }
-            var settingsRect = new Rect(86, titleY - 20, 64, 56);
-            if (GUI.Button(settingsRect, "⚙", lobbyIconStyle))
+            if (DrawIconButton(new Rect(96, titleY - 20, 72, 72), _iconGear))
             {
                 _confirmReset = false;
                 _screen = ScreenState.Settings;
@@ -1510,7 +1788,7 @@ namespace Alchemist.Bootstrap
             bool chapter2Unlocked = IsChapter2Unlocked();
             string header2 = chapter2Unlocked
                 ? "챕터 2 · 바다의 기억"
-                : "🔒 챕터 2 · 바다의 기억 (챕터 1 클리어 필요)";
+                : "[잠금] 챕터 2 · 바다의 기억 (챕터 1 클리어 필요)";
             GUI.Label(new Rect(0, cy, w, chapterHeaderH), header2, _heading);
             cy += chapterHeaderH;
             for (int i = Chapter1End; i < Stages.Length; i++)
@@ -1533,7 +1811,7 @@ namespace Alchemist.Bootstrap
             GUI.backgroundColor = unlocked ? new Color(1f, 1f, 1f, 1f) : new Color(1f, 1f, 1f, 0.4f);
             string stars = "";
             for (int k = 0; k < 3; k++) stars += (k < earnedStars) ? "★" : "☆";
-            string lockIcon = unlocked ? "" : "🔒 ";
+            string lockIcon = unlocked ? "" : "[잠금] ";
             int star3 = s.MoveLimit / 2;
             int star2 = s.MoveLimit - Mathf.Max(2, s.MoveLimit / 4);
             string label = lockIcon + s.Title + "\n" + stars + "  " + ColorLabel(s.GoalColor) + " " + s.GoalCount + "개 / " + s.MoveLimit + "턴 · ★★★ " + star3 + "턴 이내";
@@ -1596,12 +1874,12 @@ namespace Alchemist.Bootstrap
             int y0 = h / 2 - 40;
 
             GUI.backgroundColor = new Color(0.62f, 0.31f, 0.87f, 1f);
-            if (GUI.Button(new Rect(x0, y0, btnW, btnH), "▶ 재개", _primaryBtn))
+            if (GUI.Button(new Rect(x0, y0, btnW, btnH), "재개", _primaryBtn))
             {
                 _screen = ScreenState.Playing;
             }
             GUI.backgroundColor = new Color(0.32f, 0.34f, 0.40f, 1f);
-            if (GUI.Button(new Rect(x0, y0 + btnH + gap, btnW, btnH), "↻ 재시작", _ghostBtn))
+            if (GUI.Button(new Rect(x0, y0 + btnH + gap, btnW, btnH), "재시작", _ghostBtn))
             {
                 StartStage(_stageIdx);
             }
@@ -1622,10 +1900,10 @@ namespace Alchemist.Bootstrap
             GUI.DrawTexture(new Rect(0, 0, w, h), _overlayTex);
 
             int topY = (int)(sa.y + 40);
-            GUI.Label(new Rect(0, topY, w, 52), "⚙ 설정", _display);
+            GUI.Label(new Rect(0, topY, w, 52), "설정", _display);
 
             // 뒤로 버튼 좌상단
-            if (GUI.Button(new Rect(16, topY + 8, 84, 40), "◀ 뒤로", _ghostBtn))
+            if (GUI.Button(new Rect(16, topY + 8, 84, 40), "< 뒤로", _ghostBtn))
             {
                 _confirmReset = false;
                 _screen = ScreenState.Lobby;
@@ -1663,7 +1941,7 @@ namespace Alchemist.Bootstrap
             y += gap * 2;
 
             // 4) 튜토리얼 다시보기
-            y = DrawSettingActionRow(x0, y, rowW, rowH, "튜토리얼 다시보기", "▶", () =>
+            y = DrawSettingActionRow(x0, y, rowW, rowH, "튜토리얼 다시보기", ">", () =>
             {
                 _tutorialPage = 0;
                 _screen = ScreenState.Tutorial;
@@ -1811,7 +2089,7 @@ namespace Alchemist.Bootstrap
             if (_tutorialPage > 0)
             {
                 GUI.backgroundColor = new Color(0.32f, 0.34f, 0.40f, 1f);
-                if (GUI.Button(new Rect((w - (btnW * 2 + gap)) / 2, btnY, btnW, btnH), "◀ 이전", _ghostBtn))
+                if (GUI.Button(new Rect((w - (btnW * 2 + gap)) / 2, btnY, btnW, btnH), "< 이전", _ghostBtn))
                 {
                     _tutorialPage--;
                 }
@@ -1825,7 +2103,7 @@ namespace Alchemist.Bootstrap
                 : (w - btnW) / 2;
 
             GUI.backgroundColor = new Color(0.62f, 0.31f, 0.87f, 1f);
-            if (GUI.Button(new Rect(nextX, btnY, btnW, btnH), isLast ? "시작하기 ▶" : "다음 ▶", _primaryBtn))
+            if (GUI.Button(new Rect(nextX, btnY, btnW, btnH), isLast ? "시작하기 >" : "다음 >", _primaryBtn))
             {
                 if (isLast) FinishTutorial();
                 else _tutorialPage++;
@@ -1940,9 +2218,9 @@ namespace Alchemist.Bootstrap
             int w = Screen.width;
             int topY = (int)(sa.y + 48);
 
-            GUI.Label(new Rect(0, topY, w, 52), "🎨 갤러리", _display);
+            GUI.Label(new Rect(0, topY, w, 52), "갤러리", _display);
 
-            if (GUI.Button(new Rect(16, topY + 8, 84, 40), "◀ 뒤로", _ghostBtn))
+            if (GUI.Button(new Rect(16, topY + 8, 84, 40), "< 뒤로", _ghostBtn))
             {
                 _screen = ScreenState.Lobby;
             }
@@ -1989,7 +2267,7 @@ namespace Alchemist.Bootstrap
 
                 if (chUnlocked >= chTotal)
                 {
-                    GUI.Label(new Rect(0, cy, w, 22), "✨ " + art.Title + " 완전 복원! ✨", _goalLabel);
+                    GUI.Label(new Rect(0, cy, w, 22), art.Title + " 완전 복원!", _goalLabel);
                 }
                 cy += 40;
             }
@@ -2072,13 +2350,13 @@ namespace Alchemist.Bootstrap
             GUI.DrawTexture(new Rect(0, topSafe, w, panelH), _panelBg);
             GUI.Label(new Rect(16, topSafe + 10, w - 100, 32), _stage.Title, _heading);
 
-            // 우상단: 일시정지 + 로비 (큰 터치 타깃)
-            var bigBtnStyle = new GUIStyle(_ghostBtn) { fontSize = 22, fontStyle = FontStyle.Bold };
-            if (GUI.Button(new Rect(w - 180, topSafe + 10, 80, 48), "⏸", bigBtnStyle))
+            // 우상단: 일시정지 + 로비 (원형 아이콘 버튼)
+            int iconBtnSz = 72;
+            if (DrawIconButton(new Rect(w - iconBtnSz * 2 - 24, topSafe + 10, iconBtnSz, iconBtnSz), _iconPause))
             {
                 if (_screen == ScreenState.Playing) _screen = ScreenState.Paused;
             }
-            if (GUI.Button(new Rect(w - 92, topSafe + 10, 80, 48), "🏠", bigBtnStyle))
+            if (DrawIconButton(new Rect(w - iconBtnSz - 12, topSafe + 10, iconBtnSz, iconBtnSz), _iconClose))
             {
                 ExitToLobby();
             }
@@ -2100,10 +2378,14 @@ namespace Alchemist.Bootstrap
             string goalText = ColorLabel(_stage.GoalColor) + "  " + _goalProgress + " / " + _stage.GoalCount;
             GUI.Label(new Rect(barX, barY - 2, barW, barH + 4), goalText, _goalLabel);
 
-            // 하단 정보 행: 턴(좌) + 점수(우) — 이모지 + 큰 숫자로 성취감
+            // 하단 정보 행: 턴(좌) + 점수(우) — 큰 숫자로 성취감
             int infoY = topSafe + 88;
-            GUI.Label(new Rect(16, infoY, 260, 34), "⏱ " + _moves + " / " + _stage.MoveLimit, _body);
-            GUI.Label(new Rect(w - 280 - 16, infoY - 6, 280, 44), "🏆 " + _displayedScore.ToString("N0"), _scoreBig);
+            GUI.Label(new Rect(16, infoY, 280, 40), "턴 " + _moves + " / " + _stage.MoveLimit, _body);
+            // 점수 우측 — 크라운 아이콘 + 숫자
+            int scoreW = 340, crownSz = 44;
+            int scoreX = w - scoreW - 16;
+            GUI.DrawTexture(new Rect(scoreX, infoY, crownSz, crownSz), _iconCrown);
+            GUI.Label(new Rect(scoreX + crownSz + 8, infoY - 6, scoreW - crownSz - 8, 54), _displayedScore.ToString("N0"), _scoreBig);
 
             // 별 획득 현황 표시 — 현재 사용 턴 기준으로 예상 별 수 계산
             int projectedStars = ProjectStarsForCurrentMoves();
@@ -2121,9 +2403,9 @@ namespace Alchemist.Bootstrap
                     : new Color(0.75f, 0.78f, 0.82f, 1f) }
             };
             string detail = projectedStars == 3
-                ? "✨ 3성 진행 중 (" + star3Cap + "턴 이내)"
-                : projectedStars == 2 ? "⭐⭐ 진행 중 (" + star3Cap + "턴 이내=★★★)"
-                : "⭐ 최소 (" + star3Cap + "턴=★★★ · " + star2Cap + "턴=★★)";
+                ? "3성 진행 중 (" + star3Cap + "턴 이내)"
+                : projectedStars == 2 ? "2성 진행 중 (" + star3Cap + "턴 이내=3성)"
+                : "클리어 최소 (" + star3Cap + "턴=3성 · " + star2Cap + "턴=2성)";
             GUI.Label(new Rect(16, starInfoY, w - 32, 22), starPreview + "  " + detail, starStyle);
 
             // WHY(유저 피드백): '합쳐질 때 화면 왜 어두워짐' — 일반 믹스에도 dim 이 뜨는 것이
@@ -2136,7 +2418,7 @@ namespace Alchemist.Bootstrap
             // 하단 힌트 (safeArea 하단 여백 확보)
             float bottomSafeY = Screen.height - (sa.y + sa.height);
             int hintY = (int)(Screen.height - bottomSafeY - 32);
-            GUI.Label(new Rect(0, hintY, w, 20), "블록을 드래그해서 섞어요 · 🎨 팔레트에 색을 저장해보세요", _caption);
+            GUI.Label(new Rect(0, hintY, w, 20), "블록을 드래그해서 섞어요 · 팔레트에 색을 저장해보세요", _caption);
         }
 
         /// <summary>진행 바를 목표 색으로 지연 교체.</summary>
@@ -2162,7 +2444,7 @@ namespace Alchemist.Bootstrap
             Vector3 headerS = cam.WorldToScreenPoint(centerW);
             float screenYFlip = Screen.height - headerS.y;
             var headerRect = new Rect(headerS.x - 120, screenYFlip - 22, 240, 28);
-            GUI.Label(headerRect, "🎨 팔레트", _goalLabel);
+            GUI.Label(headerRect, "팔레트", _goalLabel);
 
             // 각 슬롯 위 라벨
             for (int i = 0; i < PaletteCount; i++)
@@ -2190,7 +2472,7 @@ namespace Alchemist.Bootstrap
                         alignment = TextAnchor.MiddleCenter,
                         normal = { textColor = new Color(0.95f, 0.95f, 0.95f, 0.85f) }
                     };
-                    GUI.Label(new Rect(s.x - 50, sy + 32, 100, 18), "꺼내기 ↑", tagStyle);
+                    GUI.Label(new Rect(s.x - 50, sy + 32, 100, 18), "꺼내기", tagStyle);
                 }
             }
         }
@@ -2283,7 +2565,7 @@ namespace Alchemist.Bootstrap
             int shownScore = (int)Mathf.Round(Mathf.Lerp(0f, _score, EaseOutQuart(scoreU)));
             GUI.color = new Color(1f, 1f, 1f, scoreU);
             GUI.Label(new Rect(0, h / 2 - 30, w, 40), shownScore.ToString("N0"), new GUIStyle(_display) { alignment = TextAnchor.MiddleCenter });
-            GUI.Label(new Rect(0, h / 2 + 16, w, 28), "⏱ " + _moves + " / " + _stage.MoveLimit + " · 연쇄 " + _maxChainDepth, _overlayBody);
+            GUI.Label(new Rect(0, h / 2 + 16, w, 28), "턴 " + _moves + " / " + _stage.MoveLimit + " · 연쇄 " + _maxChainDepth, _overlayBody);
             if (_stageCleared)
             {
                 int s3 = _stage.MoveLimit / 2;
